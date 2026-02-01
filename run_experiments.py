@@ -155,5 +155,7 @@ def main():
     print("="*80)
 
 
+# CLI demo with local VAE cache:
+# HF_HUB_CACHE=/data/projects/VAEs4RS/models/BiliSakura/VAEs python run_experiments.py --main-only
 if __name__ == "__main__":
     main()

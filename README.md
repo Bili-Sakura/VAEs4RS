@@ -14,9 +14,9 @@ This repository evaluates variational autoencoders (VAEs) pre-trained on natural
 | SDXL-VAE | Stable Diffusion XL | 4 |
 | SD35-VAE | Stable Diffusion 3.5 | 16 |
 | FLUX1-VAE | FLUX.1 | 16 |
-| FLUX2-VAE | FLUX.2 | 16 |
-| SANA-VAE | SANA | 32 |
-| Qwen-VAE | Qwen-Image (DC-AE) | 32 |
+| FLUX2-VAE | FLUX.2 | 32 |
+| SANA-VAE | SANA (DC-AE) | 32 |
+| Qwen-VAE | Qwen-Image | 16 |
 
 ## Datasets
 
