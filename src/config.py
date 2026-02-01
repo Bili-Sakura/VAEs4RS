@@ -21,6 +21,7 @@ class VAEConfig:
     scaling_factor: float = 0.18215
     latent_channels: int = 4
     image_size: int = 256
+    spatial_compression_ratio: int = 8  # Spatial downsampling factor (e.g., 8 means 256x256 -> 32x32)
 
 
 VAE_CONFIGS = {
@@ -29,42 +30,49 @@ VAE_CONFIGS = {
         pretrained_path="models/BiliSakura/VAEs/SD21-VAE",
         scaling_factor=0.18215,
         latent_channels=4,
+        spatial_compression_ratio=8,
     ),
     "SDXL-VAE": VAEConfig(
         name="SDXL-VAE",
         pretrained_path="models/BiliSakura/VAEs/SDXL-VAE",
         scaling_factor=0.13025,
         latent_channels=4,
+        spatial_compression_ratio=8,
     ),
     "SD35-VAE": VAEConfig(
         name="SD35-VAE",
         pretrained_path="models/BiliSakura/VAEs/SD35-VAE",
         scaling_factor=1.5305,
         latent_channels=16,
+        spatial_compression_ratio=8,
     ),
     "FLUX1-VAE": VAEConfig(
         name="FLUX1-VAE",
         pretrained_path="models/BiliSakura/VAEs/FLUX1-VAE",
         scaling_factor=0.3611,
         latent_channels=16,
+        spatial_compression_ratio=8,
     ),
     "FLUX2-VAE": VAEConfig(
         name="FLUX2-VAE",
         pretrained_path="models/BiliSakura/VAEs/FLUX2-VAE",
         scaling_factor=0.3611,
         latent_channels=32,
+        spatial_compression_ratio=8,
     ),
     "SANA-VAE": VAEConfig(
         name="SANA-VAE",
         pretrained_path="models/BiliSakura/VAEs/SANA-VAE",
         scaling_factor=0.41407,
         latent_channels=32,
+        spatial_compression_ratio=32,  # SANA uses 32x spatial compression
     ),
     "Qwen-VAE": VAEConfig(
         name="Qwen-VAE",
         pretrained_path="models/BiliSakura/VAEs/Qwen-VAE",
         scaling_factor=0.41407,
         latent_channels=16,
+        spatial_compression_ratio=8,
     ),
 }
 
