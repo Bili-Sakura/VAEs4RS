@@ -5,6 +5,7 @@ Supports NWPU-RESISC45 and AID datasets.
 """
 
 import os
+from pathlib import Path
 from typing import Optional, Tuple
 
 import torch
@@ -60,7 +61,26 @@ class RSDataset(Dataset):
         image_size: int = 256,
         transform: Optional[transforms.Compose] = None,
     ):
-        self.root = root
+        # Resolve path relative to project root if not absolute
+        if not os.path.isabs(root):
+            # Try to find project root (where run_experiments.py is)
+            # Check multiple possible locations
+            current_file = Path(__file__).resolve()
+            project_root = current_file.parent.parent.parent
+            
+            # Try the resolved path first
+            resolved_root = project_root / root
+            if resolved_root.exists():
+                root = str(resolved_root)
+            else:
+                # Fallback: try relative to current working directory
+                if os.path.exists(root):
+                    root = os.path.abspath(root)
+                else:
+                    # Last resort: try relative to project root as-is
+                    root = str(project_root / root)
+        
+        self.root = os.path.abspath(root)
         self.image_size = image_size
         self.transform = transform or get_transform(image_size)
         
@@ -69,8 +89,14 @@ class RSDataset(Dataset):
         self.labels = []
         self.class_names = []
         
-        for class_idx, class_name in enumerate(sorted(os.listdir(root))):
-            class_dir = os.path.join(root, class_name)
+        if not os.path.exists(self.root):
+            raise ValueError(
+                f"Dataset root directory does not exist: {self.root}\n"
+                f"Please ensure the dataset is available at this path."
+            )
+        
+        for class_idx, class_name in enumerate(sorted(os.listdir(self.root))):
+            class_dir = os.path.join(self.root, class_name)
             if not os.path.isdir(class_dir):
                 continue
             self.class_names.append(class_name)
@@ -78,6 +104,9 @@ class RSDataset(Dataset):
                 if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff')):
                     self.image_paths.append(os.path.join(class_dir, img_name))
                     self.labels.append(class_idx)
+        
+        if len(self.image_paths) == 0:
+            raise ValueError(f"No images found in dataset root: {self.root}")
     
     def __len__(self) -> int:
         return len(self.image_paths)

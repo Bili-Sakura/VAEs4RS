@@ -89,7 +89,7 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "RESISC45": DatasetConfig(
         name="RESISC45",
-        root="datasets/blanchon/RESISC45",
+        root="datasets/blanchon/RESISC45/data",
         image_size=256,
         num_classes=45,
     ),
