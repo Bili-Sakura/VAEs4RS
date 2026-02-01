@@ -36,9 +36,6 @@ VAEs4RS/
 │   ├── visualize.py    # Visualization utilities
 │   ├── ablation.py     # Denoising/de-hazing ablation study
 │   └── utils.py        # Helper utilities
-├── scripts/
-│   ├── download_datasets.py    # Dataset download instructions
-│   └── generate_latex_table.py # Generate LaTeX tables
 ├── run_experiments.py  # Run all experiments
 └── datasets/
     └── blanchon/
@@ -122,14 +119,5 @@ for images, labels, paths in dataloader:
 If you find this work useful, please cite:
 
 ```bibtex
-@inproceedings{vaes4rs2026,
-  title={The Robustness of Natural English Priors in Remote Sensing: A Zero-Shot VAE Study},
-  author={Anonymous},
-  booktitle={ICLR 2026 Workshop on Machine Learning for Remote Sensing},
-  year={2026}
-}
+TBD
 ```
-
-## License
-
-MIT License

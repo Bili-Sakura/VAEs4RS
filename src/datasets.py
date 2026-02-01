@@ -6,7 +6,7 @@ Supports NWPU-RESISC45 and AID datasets.
 
 import os
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -17,22 +17,32 @@ from PIL import Image
 from config import DatasetConfig, DATASET_CONFIGS
 
 
-def get_transform(image_size: int = 256) -> transforms.Compose:
+def get_transform(image_size: Optional[int] = None) -> transforms.Compose:
     """
     Get standard image transform for VAE evaluation.
     
     Args:
-        image_size: Target image size
+        image_size: Target image size. If None, images are loaded at their original size.
         
     Returns:
         Composed transform
     """
-    return transforms.Compose([
-        transforms.Resize(image_size, interpolation=transforms.InterpolationMode.BICUBIC),
-        transforms.CenterCrop(image_size),
+    transform_list = []
+    
+    # Only resize and crop if image_size is specified
+    if image_size is not None:
+        transform_list.extend([
+            transforms.Resize(image_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(image_size),
+        ])
+    
+    # Always convert to tensor and normalize
+    transform_list.extend([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
+    
+    return transforms.Compose(transform_list)
 
 
 def get_inverse_transform() -> transforms.Compose:
@@ -48,6 +58,44 @@ def get_inverse_transform() -> transforms.Compose:
     ])
 
 
+def collate_variable_size(batch: List[Tuple[torch.Tensor, int, str]]) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
+    """
+    Custom collate function for variable-sized images.
+    
+    Pads images to the maximum size in the batch.
+    
+    Args:
+        batch: List of (image, label, path) tuples
+        
+    Returns:
+        Tuple of (padded_images, labels, paths)
+    """
+    images, labels, paths = zip(*batch)
+    
+    # Find maximum height and width
+    max_h = max(img.shape[1] for img in images)
+    max_w = max(img.shape[2] for img in images)
+    channels = images[0].shape[0]
+    
+    # Pad all images to max size
+    padded_images = []
+    for img in images:
+        h, w = img.shape[1], img.shape[2]
+        pad_h = max_h - h
+        pad_w = max_w - w
+        
+        # Pad with -1 (normalized value for black in [-1, 1] range)
+        padded = torch.nn.functional.pad(
+            img,
+            (0, pad_w, 0, pad_h),
+            mode='constant',
+            value=-1.0
+        )
+        padded_images.append(padded)
+    
+    return torch.stack(padded_images), torch.tensor(labels), list(paths)
+
+
 class RSDataset(Dataset):
     """
     Remote Sensing Dataset wrapper.
@@ -58,8 +106,9 @@ class RSDataset(Dataset):
     def __init__(
         self,
         root: str,
-        image_size: int = 256,
+        image_size: Optional[int] = None,
         transform: Optional[transforms.Compose] = None,
+        classes: Optional[list[str]] = None,
     ):
         # Resolve path relative to project root if not absolute
         if not os.path.isabs(root):
@@ -83,6 +132,7 @@ class RSDataset(Dataset):
         self.root = os.path.abspath(root)
         self.image_size = image_size
         self.transform = transform or get_transform(image_size)
+        self.classes_filter = classes  # List of class names to include (None = all classes)
         
         # Find all images
         self.image_paths = []
@@ -95,7 +145,25 @@ class RSDataset(Dataset):
                 f"Please ensure the dataset is available at this path."
             )
         
-        for class_idx, class_name in enumerate(sorted(os.listdir(self.root))):
+        # Get all available classes
+        all_classes = sorted([d for d in os.listdir(self.root) 
+                             if os.path.isdir(os.path.join(self.root, d))])
+        
+        # Filter classes if specified
+        if self.classes_filter is not None:
+            # Normalize class names (case-insensitive matching)
+            classes_filter_lower = [c.lower() for c in self.classes_filter]
+            selected_classes = [c for c in all_classes 
+                              if c.lower() in classes_filter_lower]
+            if not selected_classes:
+                raise ValueError(
+                    f"None of the specified classes {self.classes_filter} found in dataset. "
+                    f"Available classes: {all_classes[:10]}..." if len(all_classes) > 10 else f"Available classes: {all_classes}"
+                )
+            all_classes = selected_classes
+        
+        # Build dataset
+        for class_idx, class_name in enumerate(all_classes):
             class_dir = os.path.join(self.root, class_name)
             if not os.path.isdir(class_dir):
                 continue
@@ -124,18 +192,20 @@ class RSDataset(Dataset):
 
 def load_dataset(
     dataset_name: str,
-    image_size: int = 256,
+    image_size: Optional[int] = 256,
     batch_size: int = 16,
     num_workers: int = 4,
+    classes: Optional[list[str]] = None,
 ) -> Tuple[RSDataset, DataLoader]:
     """
     Load a remote sensing dataset.
     
     Args:
         dataset_name: Name of the dataset ("RESISC45" or "AID")
-        image_size: Target image size
+        image_size: Target image size. If None, images are loaded at their original size.
         batch_size: Batch size for DataLoader
         num_workers: Number of workers for DataLoader
+        classes: Optional list of class names to filter (None = all classes)
         
     Returns:
         Tuple of (dataset, dataloader)
@@ -148,21 +218,30 @@ def load_dataset(
     dataset = RSDataset(
         root=config.root,
         image_size=image_size,
+        classes=classes,
     )
+    
+    # Use custom collate function for variable-sized images
+    # If image_size is None, images have variable sizes and need padding
+    collate_fn = collate_variable_size if image_size is None else None
+    
+    # When using variable sizes, batch_size=1 is safer to avoid memory issues
+    effective_batch_size = 1 if image_size is None else batch_size
     
     dataloader = DataLoader(
         dataset,
-        batch_size=batch_size,
+        batch_size=effective_batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
+        collate_fn=collate_fn,
     )
     
     return dataset, dataloader
 
 
 def load_all_datasets(
-    image_size: int = 256,
+    image_size: Optional[int] = 256,
     batch_size: int = 16,
     num_workers: int = 4,
 ) -> dict[str, Tuple[RSDataset, DataLoader]]:
@@ -170,7 +249,7 @@ def load_all_datasets(
     Load all remote sensing datasets.
     
     Args:
-        image_size: Target image size
+        image_size: Target image size. If None, images are loaded at their original size.
         batch_size: Batch size for DataLoader
         num_workers: Number of workers for DataLoader
         

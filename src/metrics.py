@@ -17,8 +17,20 @@ from torchmetrics.image import (
     PeakSignalNoiseRatio,
     StructuralSimilarityIndexMeasure,
     LearnedPerceptualImagePatchSimilarity,
-    FrechetInceptionDistance,
 )
+
+# Try to import FID, but handle missing torch-fidelity gracefully
+try:
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    FID_AVAILABLE = True
+except (ImportError, RuntimeError) as e:
+    FID_AVAILABLE = False
+    FrechetInceptionDistance = None
+    import warnings
+    warnings.warn(
+        f"FrechetInceptionDistance is not available: {e}. "
+        "FID will be skipped. Install with: pip install torchmetrics[image] or pip install torch-fidelity"
+    )
 
 
 @dataclass
@@ -57,15 +69,28 @@ class MetricCalculator:
     
     def __init__(self, device: str = "cuda", compute_fid: bool = True):
         self.device = device
-        self.compute_fid = compute_fid
+        # Only compute FID if requested and available
+        self.compute_fid = compute_fid and FID_AVAILABLE
         
         # Initialize metrics
         self.psnr = PeakSignalNoiseRatio(data_range=2.0).to(device)  # [-1, 1] range
         self.ssim = StructuralSimilarityIndexMeasure(data_range=2.0).to(device)
         self.lpips = LearnedPerceptualImagePatchSimilarity(net_type="alex").to(device)
         
-        if compute_fid:
-            self.fid = FrechetInceptionDistance(normalize=True).to(device)
+        if self.compute_fid:
+            try:
+                # Use normalize=False since we'll provide uint8 images in [0, 255] range
+                self.fid = FrechetInceptionDistance(normalize=False).to(device)
+            except Exception as e:
+                import warnings
+                warnings.warn(
+                    f"Failed to initialize FrechetInceptionDistance: {e}. "
+                    "FID will be skipped. Install with: pip install torchmetrics[image] or pip install torch-fidelity"
+                )
+                self.compute_fid = False
+                self.fid = None
+        else:
+            self.fid = None
         
         # Accumulate values
         self.psnr_values: List[float] = []
@@ -77,7 +102,7 @@ class MetricCalculator:
         self.psnr_values = []
         self.ssim_values = []
         self.lpips_values = []
-        if self.compute_fid:
+        if self.compute_fid and self.fid is not None:
             self.fid.reset()
     
     @torch.no_grad()
@@ -89,7 +114,8 @@ class MetricCalculator:
             original: Original images, shape (B, 3, H, W), range [-1, 1]
             reconstructed: Reconstructed images, shape (B, 3, H, W), range [-1, 1]
         """
-        # Clamp reconstructed images to valid range
+        # Clamp images to valid range [-1, 1] for safety
+        original = original.clamp(-1, 1)
         reconstructed = reconstructed.clamp(-1, 1)
         
         # Compute per-batch metrics
@@ -98,12 +124,16 @@ class MetricCalculator:
         self.lpips_values.append(self.lpips(reconstructed, original).item())
         
         # Update FID
-        if self.compute_fid:
-            # Convert to [0, 1] range for FID
+        if self.compute_fid and self.fid is not None:
+            # Convert from [-1, 1] to [0, 1] range
             orig_01 = (original + 1) / 2
             recon_01 = (reconstructed + 1) / 2
             
-            # Convert to uint8 for FID
+            # Clamp to valid [0, 1] range before conversion
+            orig_01 = orig_01.clamp(0, 1)
+            recon_01 = recon_01.clamp(0, 1)
+            
+            # Convert to uint8 [0, 255] for FID (normalize=False expects uint8)
             orig_uint8 = (orig_01 * 255).to(torch.uint8)
             recon_uint8 = (recon_01 * 255).to(torch.uint8)
             
@@ -122,7 +152,7 @@ class MetricCalculator:
         lpips_avg = np.mean(self.lpips_values)
         
         fid_value = None
-        if self.compute_fid:
+        if self.compute_fid and self.fid is not None:
             fid_value = self.fid.compute().item()
         
         return MetricResults(

@@ -64,7 +64,6 @@ def visualize_reconstructions(
     
     # Get sample images
     sample_batch = next(iter(dataloader))
-    original_images = sample_batch[0].to(device, dtype=torch.float16)
     
     # Load models and reconstruct
     reconstructions = {}
@@ -72,6 +71,9 @@ def visualize_reconstructions(
         print(f"Loading {model_name}...")
         try:
             vae = load_vae(model_name, device=device)
+            # Use model's dtype (models use float16/bfloat16)
+            model_dtype = next(vae.model.parameters()).dtype
+            original_images = sample_batch[0].to(device, dtype=model_dtype)
             with torch.no_grad():
                 recon = vae.reconstruct(original_images)
             reconstructions[model_name] = recon.float()
@@ -142,6 +144,8 @@ def visualize_latent_space(
     
     # Load model and dataset
     vae = load_vae(model_name, device=device)
+    # Use model's dtype (models use float16/bfloat16)
+    model_dtype = next(vae.model.parameters()).dtype
     dataset, dataloader = load_dataset(
         dataset_name,
         image_size=image_size,
@@ -157,7 +161,7 @@ def visualize_latent_space(
     for images, lbls, _ in dataloader:
         if count >= num_samples:
             break
-        images = images.to(device, dtype=torch.float16)
+        images = images.to(device, dtype=model_dtype)
         with torch.no_grad():
             z = vae.encode(images)
         latents.append(z.cpu().numpy().reshape(z.size(0), -1))

@@ -165,8 +165,11 @@ def evaluate_denoising(
     distorted_calc = MetricCalculator(device=config.device, compute_fid=False)
     cleaned_calc = MetricCalculator(device=config.device, compute_fid=False)
     
+    # Use model's dtype (models use float16/bfloat16)
+    model_dtype = next(vae.model.parameters()).dtype
+    
     for images, labels, paths in tqdm(dataloader, desc=f"Evaluating {distortion_name}"):
-        images = images.to(config.device, dtype=torch.float16)
+        images = images.to(config.device, dtype=model_dtype)
         
         # Apply distortion
         distorted = distort_fn(images)

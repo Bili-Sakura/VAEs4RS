@@ -26,49 +26,45 @@ class VAEConfig:
 VAE_CONFIGS = {
     "SD21-VAE": VAEConfig(
         name="SD21-VAE",
-        pretrained_path="stabilityai/sd-vae-ft-ema",
+        pretrained_path="models/BiliSakura/VAEs/SD21-VAE",
         scaling_factor=0.18215,
         latent_channels=4,
     ),
     "SDXL-VAE": VAEConfig(
         name="SDXL-VAE",
-        pretrained_path="madebyollin/sdxl-vae-fp16-fix",
+        pretrained_path="models/BiliSakura/VAEs/SDXL-VAE",
         scaling_factor=0.13025,
         latent_channels=4,
     ),
     "SD35-VAE": VAEConfig(
         name="SD35-VAE",
-        pretrained_path="stabilityai/stable-diffusion-3.5-large",
-        subfolder="vae",
+        pretrained_path="models/BiliSakura/VAEs/SD35-VAE",
         scaling_factor=1.5305,
         latent_channels=16,
     ),
     "FLUX1-VAE": VAEConfig(
         name="FLUX1-VAE",
-        pretrained_path="black-forest-labs/FLUX.1-dev",
-        subfolder="vae",
+        pretrained_path="models/BiliSakura/VAEs/FLUX1-VAE",
         scaling_factor=0.3611,
         latent_channels=16,
     ),
     "FLUX2-VAE": VAEConfig(
         name="FLUX2-VAE",
-        pretrained_path="black-forest-labs/FLUX.1-schnell",  # Placeholder for FLUX.2
-        subfolder="vae",
+        pretrained_path="models/BiliSakura/VAEs/FLUX2-VAE",
         scaling_factor=0.3611,
-        latent_channels=16,
+        latent_channels=32,
     ),
     "SANA-VAE": VAEConfig(
         name="SANA-VAE",
-        pretrained_path="Efficient-Large-Model/Sana_1600M_1024px_diffusers",
-        subfolder="vae",
+        pretrained_path="models/BiliSakura/VAEs/SANA-VAE",
         scaling_factor=0.41407,
         latent_channels=32,
     ),
     "Qwen-VAE": VAEConfig(
         name="Qwen-VAE",
-        pretrained_path="mit-han-lab/dc-ae-f32c32-sana-1.0",
+        pretrained_path="models/BiliSakura/VAEs/Qwen-VAE",
         scaling_factor=0.41407,
-        latent_channels=32,
+        latent_channels=16,
     ),
 }
 
@@ -95,7 +91,7 @@ DATASET_CONFIGS = {
     ),
     "AID": DatasetConfig(
         name="AID",
-        root="datasets/blanchon/AID",
+        root="datasets/blanchon/AID/data",
         image_size=600,
         num_classes=30,
     ),
@@ -114,4 +110,4 @@ class EvalConfig:
     device: str = "cuda"
     output_dir: str = "outputs"
     seed: int = 42
-    image_size: int = 256  # Resize all images to this size for fair comparison
+    image_size: Optional[int] = None  # Resize all images to this size. If None, use original sizes.
