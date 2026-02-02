@@ -17,15 +17,17 @@ This repository evaluates variational autoencoders (VAEs) pre-trained on natural
 
 Our evaluation demonstrates that pre-trained VAEs achieve strong zero-shot reconstruction performance on remote sensing data. Key quantitative results:
 
-| Model | GFLOPs | Latent Shape | PSNR ↑ (RESISC45) | PSNR ↑ (AID) | SSIM ↑ (RESISC45) | SSIM ↑ (AID) | LPIPS ↓ (RESISC45) | LPIPS ↓ (AID) | FID ↓ (RESISC45) | FID ↓ (AID) |
-|-------|--------|--------------|------------------:|-------------:|------------------:|-------------:|-------------------:|--------------:|-----------------:|------------:|
-| SD21-VAE | 894.91 | (4,32,32) | 25.71 | 26.66 | 0.672 | 0.709 | 0.095 | 0.094 | 4.13 | 3.08 |
-| SDXL-VAE | 894.91 | (4,32,32) | 25.83 | 26.80 | 0.692 | 0.726 | 0.098 | 0.098 | 4.98 | 3.11 |
-| SD35-VAE | 895.25 | (16,32,32) | 29.71 | 30.72 | 0.862 | 0.876 | 0.035 | 0.037 | 1.11 | 0.69 |
-| FLUX1-VAE | 895.25 | (16,32,32) | 33.30 | 33.63 | 0.923 | 0.918 | 0.022 | 0.025 | 0.38 | 0.26 |
-| **FLUX2-VAE** | 895.71 | (32,32,32) | **33.42** | **34.46** | **0.925** | **0.926** | **0.021** | **0.022** | **0.46** | **0.37** |
-| SANA-VAE | 846.76 | (32,8,8) | 23.36 | N/A* | 0.558 | N/A* | 0.124 | N/A* | 8.69 | N/A* |
-| Qwen-VAE | 1143.88 | (16,32,32) | 30.38 | 31.46 | 0.874 | 0.889 | 0.080 | 0.077 | 9.51 | 0.42 |
+Metrics below are computed on the **full datasets at their original image sizes** (RESISC45: 256×256; AID: 600×600). Spatial comp. ratio denotes the per-dimension spatial downsampling factor (input:latent), and latent ch. denotes the number of latent channels.
+
+| Model | GFLOPs | Spatial Comp. Ratio | Latent Ch. | PSNR ↑ (RESISC45) | PSNR ↑ (AID) | SSIM ↑ (RESISC45) | SSIM ↑ (AID) | LPIPS ↓ (RESISC45) | LPIPS ↓ (AID) | FID ↓ (RESISC45) | FID ↓ (AID) |
+|-------|--------|---------------------:|-----------:|------------------:|-------------:|------------------:|-------------:|-------------------:|--------------:|-----------------:|------------:|
+| SD21-VAE | 894.91 | 8 | 4 | 25.71 | 26.66 | 0.672 | 0.709 | 0.095 | 0.094 | 4.13 | 3.08 |
+| SDXL-VAE | 894.91 | 8 | 4 | 25.83 | 26.80 | 0.692 | 0.726 | 0.098 | 0.098 | 4.98 | 3.11 |
+| SD35-VAE | 895.25 | 8 | 16 | 29.71 | 30.72 | 0.862 | 0.876 | 0.035 | 0.037 | 1.11 | 0.69 |
+| FLUX1-VAE | 895.25 | 8 | 16 | <ins>33.30</ins> | <ins>33.63</ins> | <ins>0.923</ins> | <ins>0.918</ins> | <ins>0.022</ins> | <ins>0.025</ins> | **0.38** | **0.26** |
+| FLUX2-VAE | 895.71 | 8 | 32 | **33.42** | **34.46** | **0.925** | **0.926** | **0.021** | **0.022** | <ins>0.46</ins> | <ins>0.37</ins> |
+| SANA-VAE | 846.76 | 32 | 32 | 23.36 | N/A* | 0.558 | N/A* | 0.124 | N/A* | 8.69 | N/A* |
+| Qwen-VAE | 1143.88 | 8 | 16 | 30.38 | 31.46 | 0.874 | 0.889 | 0.080 | 0.077 | 9.51 | 0.42 |
 
 *SANA-VAE cannot process AID images (600×600px) because 600 is not divisible by 32 (SANA-VAE's spatial compression factor).
 

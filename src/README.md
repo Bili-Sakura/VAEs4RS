@@ -182,7 +182,7 @@ Helper utilities.
 ### `vae_statistics.py`
 VAE model statistics and analysis.
 
-- `get_vae_statistics()`: Compute model statistics (GFLOPs, latent shape, etc.)
+- `get_vae_statistics()`: Compute model statistics (GFLOPs, spatial compression ratio, latent channels, latent shape, etc.)
 - Useful for understanding model complexity and capabilities
 
 ## Advanced Usage
