@@ -156,16 +156,22 @@ def load_vae(
             dtype = torch.float16
     
     # Load the model
+    # Use ignore_mismatched_sizes=True to handle shape mismatches (e.g., SANA-VAE)
+    # low_cpu_mem_usage=False is required when using ignore_mismatched_sizes=True
     if config.subfolder:
         model = AutoencoderKL.from_pretrained(
             config.pretrained_path,
             subfolder=config.subfolder,
             torch_dtype=dtype,
+            ignore_mismatched_sizes=True,
+            low_cpu_mem_usage=False,
         )
     else:
         model = AutoencoderKL.from_pretrained(
             config.pretrained_path,
             torch_dtype=dtype,
+            ignore_mismatched_sizes=True,
+            low_cpu_mem_usage=False,
         )
     
     model = model.to(device)
