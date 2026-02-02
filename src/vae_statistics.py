@@ -49,6 +49,7 @@ class VAEStatistics:
     input_shape: Tuple[int, int, int]  # (C, H, W)
     latent_shape: Tuple[int, int, int]  # (C, H/f, W/f)
     scaling_factor: float
+    dtype: torch.dtype  # Model data type (e.g., bfloat16, float16, float32)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -76,16 +77,19 @@ class VAEStatistics:
                 "latent": list(self.latent_shape),
             },
             "scaling_factor": self.scaling_factor,
+            "dtype": str(self.dtype),
         }
     
     def __repr__(self) -> str:
+        dtype_str = str(self.dtype).replace('torch.', '')
         return (
             f"VAEStatistics({self.name}: "
             f"{self.total_params/1e6:.2f}M params, "
             f"{self.total_gflops:.2f} GFLOPs, "
             f"spatial_compression={self.spatial_compression_ratio}x, "
             f"latent_channels={self.latent_channels}, "
-            f"data_compression={self.data_compression_ratio:.2f}x)"
+            f"data_compression={self.data_compression_ratio:.2f}x, "
+            f"dtype={dtype_str})"
         )
 
 
@@ -124,7 +128,8 @@ def calculate_flops_with_profiler(
     try:
         from torch.utils.flop_counter import FlopCounterMode
         
-        with FlopCounterMode(model, display=False) as flop_counter:
+        # FlopCounterMode no longer needs the model argument
+        with FlopCounterMode(display=False) as flop_counter:
             if forward_fn is not None:
                 forward_fn(input_tensor)
             else:
@@ -188,31 +193,29 @@ def _estimate_flops_fallback(
     return float(total_flops)
 
 
-def get_spatial_downsampling_factor(vae_model, input_size: Tuple[int, int, int], device: str = "cpu") -> int:
+def get_spatial_downsampling_factor(vae_wrapper, input_size: Tuple[int, int, int], device: str = "cpu") -> int:
     """
     Determine the spatial downsampling factor of a VAE encoder.
     
     Args:
-        vae_model: The VAE model (AutoencoderKL or VAEWrapper)
+        vae_wrapper: The VAE wrapper (VAEWrapper instance)
         input_size: Input size as (C, H, W)
         device: Device for computation
         
     Returns:
         Spatial downsampling factor (e.g., 8 for 256x256 -> 32x32)
     """
-    # Handle VAEWrapper
-    if hasattr(vae_model, 'model'):
-        model = vae_model.model
-    else:
-        model = vae_model
+    # Get the actual dtype from the model
+    model = vae_wrapper.model
+    model_dtype = next(model.parameters()).dtype
     
-    # Create dummy input
+    # Create dummy input with matching dtype
     c, h, w = input_size
-    dummy_input = torch.randn(1, c, h, w, device=device, dtype=next(model.parameters()).dtype)
+    dummy_input = torch.randn(1, c, h, w, device=device, dtype=model_dtype)
     
     with torch.no_grad():
-        # Encode to get latent shape
-        latent = model.encode(dummy_input).latent_dist.sample()
+        # Use wrapper's encode method for unified interface
+        latent = vae_wrapper.encode(dummy_input)
     
     latent_h, latent_w = latent.shape[2], latent.shape[3]
     
@@ -250,26 +253,39 @@ def get_vae_statistics(
     
     config = VAE_CONFIGS[model_name]
     
-    # Use float32 for accurate FLOPs calculation
+    # Load model - use float32 for accurate FLOPs calculation if explicitly requested
+    # Otherwise let load_vae choose appropriate dtype (bfloat16/float16)
     if dtype is None:
-        dtype = torch.float32
+        # Try float32 first, but load_vae will convert to bfloat16/float16
+        # We'll use the actual model dtype for inputs
+        vae = load_vae(model_name, device=device, dtype=torch.float32)
+    else:
+        vae = load_vae(model_name, device=device, dtype=dtype)
     
-    # Load model
-    # We need to load with float32 for accurate FLOPs counting
-    vae = load_vae(model_name, device=device, dtype=dtype)
     model = vae.model
+    if model is None:
+        raise ValueError(f"Model failed to load for {model_name}")
+    
     model.eval()
     
-    # Create dummy input
+    # Get the actual dtype from the model (may differ from requested dtype)
+    # Handle case where model might not have parameters (shouldn't happen, but be safe)
+    try:
+        model_dtype = next(model.parameters()).dtype
+    except StopIteration:
+        # Fallback to float32 if no parameters found (shouldn't happen for valid models)
+        model_dtype = torch.float32
+    
+    # Create dummy input with matching dtype to avoid dtype mismatch errors
     c, h, w = input_size
-    dummy_input = torch.randn(1, c, h, w, device=device, dtype=dtype)
+    dummy_input = torch.randn(1, c, h, w, device=device, dtype=model_dtype)
     
-    # Calculate spatial downsampling factor
-    spatial_factor = get_spatial_downsampling_factor(model, input_size, device)
+    # Calculate spatial downsampling factor using wrapper
+    spatial_factor = get_spatial_downsampling_factor(vae, input_size, device)
     
-    # Get latent shape
+    # Get latent shape using wrapper's encode method
     with torch.no_grad():
-        latent = model.encode(dummy_input).latent_dist.sample()
+        latent = vae.encode(dummy_input)
     latent_c, latent_h, latent_w = latent.shape[1], latent.shape[2], latent.shape[3]
     
     # Count parameters
@@ -286,22 +302,24 @@ def get_vae_statistics(
         decoder_params = count_module_parameters(model.decoder)
     
     # Also count quant_conv and post_quant_conv if present
-    if hasattr(model, 'quant_conv'):
+    if hasattr(model, 'quant_conv') and model.quant_conv is not None:
         encoder_params += count_module_parameters(model.quant_conv)
-    if hasattr(model, 'post_quant_conv'):
+    if hasattr(model, 'post_quant_conv') and model.post_quant_conv is not None:
         decoder_params += count_module_parameters(model.post_quant_conv)
     
-    # Calculate encode FLOPs
+    # Calculate encode FLOPs using wrapper's encode method
     def encode_forward(x):
-        return model.encode(x).latent_dist.sample()
+        return vae.encode(x)
     
     encode_flops = calculate_flops_with_profiler(model, dummy_input, encode_forward)
     
-    # Calculate decode FLOPs
-    dummy_latent = torch.randn(1, latent_c, latent_h, latent_w, device=device, dtype=dtype)
+    # Calculate decode FLOPs using wrapper's decode method
+    # vae.decode() expects scaled latents (it divides by scaling_factor internally)
+    # For FLOPs calculation, we use dummy latents with the same shape
+    dummy_latent = torch.randn(1, latent_c, latent_h, latent_w, device=device, dtype=model_dtype)
     
     def decode_forward(z):
-        return model.decode(z).sample
+        return vae.decode(z)
     
     decode_flops = calculate_flops_with_profiler(model, dummy_latent, decode_forward)
     
@@ -330,6 +348,7 @@ def get_vae_statistics(
         input_shape=input_size,
         latent_shape=(latent_c, latent_h, latent_w),
         scaling_factor=config.scaling_factor,
+        dtype=model_dtype,
     )
 
 
@@ -389,11 +408,13 @@ def print_vae_statistics_table(stats: Dict[str, VAEStatistics]):
         f"{'Spatial':>8} "
         f"{'Latent Ch':>10} "
         f"{'Data Comp':>10} "
-        f"{'Latent Shape':>16}"
+        f"{'Latent Shape':>16} "
+        f"{'Dtype':>10}"
     )
-    print("-" * 120)
+    print("-" * 130)
     
     for name, s in stats.items():
+        dtype_str = str(s.dtype).replace('torch.', '')
         print(
             f"{name:<12} "
             f"{s.total_params/1e6:>12.2f} "
@@ -403,10 +424,11 @@ def print_vae_statistics_table(stats: Dict[str, VAEStatistics]):
             f"{s.spatial_compression_ratio:>7}x "
             f"{s.latent_channels:>10} "
             f"{s.data_compression_ratio:>9.2f}x "
-            f"{str(s.latent_shape):>16}"
+            f"{str(s.latent_shape):>16} "
+            f"{dtype_str:>10}"
         )
     
-    print("=" * 120)
+    print("=" * 130)
     print("\nLegend:")
     print("  - Params (M): Total parameters in millions")
     print("  - Enc (M): Encoder parameters in millions")
@@ -416,6 +438,7 @@ def print_vae_statistics_table(stats: Dict[str, VAEStatistics]):
     print("  - Latent Ch: Number of latent channels")
     print("  - Data Comp: Data compression ratio (input_elements / latent_elements)")
     print("  - Latent Shape: Shape of latent representation (C, H, W)")
+    print("  - Dtype: Model data type (bfloat16, float16, or float32)")
 
 
 def save_vae_statistics(
