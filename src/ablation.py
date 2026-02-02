@@ -12,10 +12,18 @@ import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 
-from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
-from models import load_vae, VAEWrapper
-from datasets import load_dataset
-from metrics import MetricCalculator, MetricResults
+# Try relative imports first (when used as a package), fall back to absolute (when imported directly)
+try:
+    from .config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from .models import load_vae, VAEWrapper
+    from .datasets import load_dataset
+    from .metrics import MetricCalculator, MetricResults
+except ImportError:
+    # Fall back to absolute imports when src is in path
+    from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from models import load_vae, VAEWrapper
+    from datasets import load_dataset
+    from metrics import MetricCalculator, MetricResults
 
 
 # =============================================================================

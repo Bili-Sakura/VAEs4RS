@@ -7,22 +7,38 @@ Usage:
 """
 
 import os
+import sys
 import argparse
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Add src to path to allow absolute imports
+current_file = Path(__file__).resolve()
+src_dir = current_file.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import torch
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
-from models import load_vae, VAEWrapper
-from datasets import load_dataset
-from metrics import MetricCalculator, MetricResults
-from utils import save_tensor_as_image
+# Try relative imports first (when used as a package), fall back to absolute (when imported directly)
+try:
+    from .config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from .models import load_vae, VAEWrapper
+    from .datasets import load_dataset
+    from .metrics import MetricCalculator, MetricResults
+    from .utils import save_tensor_as_image
+except ImportError:
+    # Fall back to absolute imports when src is in path
+    from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from models import load_vae, VAEWrapper
+    from datasets import load_dataset
+    from metrics import MetricCalculator, MetricResults
+    from utils import save_tensor_as_image
 
 
 def evaluate_single(
@@ -32,6 +48,7 @@ def evaluate_single(
     classes: Optional[list[str]] = None,
     original_images_dir: Optional[Path] = None,
     reconstructed_images_dir: Optional[Path] = None,
+    latent_images_dir: Optional[Path] = None,
 ) -> MetricResults:
     """
     Evaluate a single VAE on a single dataset.
@@ -45,6 +62,8 @@ def evaluate_single(
                              If None, original images are not saved.
         reconstructed_images_dir: Optional directory to save reconstructed images (per model).
                                   If None, reconstructed images are not saved.
+        latent_images_dir: Optional directory to save latent representations as .npy files (per model).
+                           If None, latent images are not saved.
         
     Returns:
         MetricResults
@@ -64,6 +83,8 @@ def evaluate_single(
         original_images_dir.mkdir(parents=True, exist_ok=True)
     if reconstructed_images_dir is not None:
         reconstructed_images_dir.mkdir(parents=True, exist_ok=True)
+    if latent_images_dir is not None:
+        latent_images_dir.mkdir(parents=True, exist_ok=True)
     
     # Determine input dtype based on model dtype (models use float16/bfloat16)
     model_dtype = next(vae.model.parameters()).dtype
@@ -73,8 +94,14 @@ def evaluate_single(
         reconstructed = vae.reconstruct(images)
         calculator.update(images.float(), reconstructed.float())
         
+        # Encode to get latents if saving latents
+        latents = None
+        if latent_images_dir is not None:
+            with torch.no_grad():
+                latents = vae.encode(images)
+        
         # Save images if requested
-        if original_images_dir is not None or reconstructed_images_dir is not None:
+        if original_images_dir is not None or reconstructed_images_dir is not None or latent_images_dir is not None:
             images_cpu = images.float().cpu()
             reconstructed_cpu = reconstructed.float().cpu()
             
@@ -84,22 +111,41 @@ def evaluate_single(
                     # Get the base filename from the original path
                     original_path = Path(paths[i])
                     filename = original_path.stem  # filename without extension
+                    original_filename = original_path.name  # filename with extension
                     # Use batch index and sample index to ensure unique names
-                    save_filename = f"{filename}_batch{batch_idx:04d}_idx{i:03d}.png"
+                    save_filename_base = f"{filename}_batch{batch_idx:04d}_idx{i:03d}"
                 else:
                     # Fallback if paths not available
-                    save_filename = f"batch{batch_idx:04d}_idx{i:03d}.png"
+                    save_filename_base = f"batch{batch_idx:04d}_idx{i:03d}"
+                    original_filename = f"batch{batch_idx:04d}_idx{i:03d}.png"
                 
                 # Save original image (only if directory provided and file doesn't exist)
                 if original_images_dir is not None:
-                    original_path = original_images_dir / save_filename
+                    original_path = original_images_dir / f"{save_filename_base}.png"
                     if not original_path.exists():
                         save_tensor_as_image(images_cpu[i], str(original_path), normalize=True)
                 
                 # Save reconstructed image
                 if reconstructed_images_dir is not None:
-                    reconstructed_path = reconstructed_images_dir / save_filename
+                    reconstructed_path = reconstructed_images_dir / f"{save_filename_base}.png"
                     save_tensor_as_image(reconstructed_cpu[i], str(reconstructed_path), normalize=True)
+                
+                # Save latent representation as compressed .npz file with float16
+                if latent_images_dir is not None and latents is not None:
+                    # Use original filename but replace extension with .npz
+                    if paths and i < len(paths):
+                        original_path_obj = Path(paths[i])
+                        latent_filename = original_path_obj.stem + ".npz"
+                    else:
+                        latent_filename = f"batch{batch_idx:04d}_idx{i:03d}.npz"
+                    latent_path = latent_images_dir / latent_filename
+                    # Save latent as compressed npz with float16 for maximum compression
+                    # Convert to float16 for smaller file size (sufficient precision for latents)
+                    latent_np = latents[i].cpu().float().numpy().astype(np.float16)
+                    np.savez_compressed(str(latent_path), latent=latent_np)
+                    # Print progress every 100 files
+                    if (batch_idx * config.batch_size + i) % 100 == 0:
+                        print(f"  Saved {batch_idx * config.batch_size + i} latents to {latent_images_dir}")
     
     return calculator.compute()
 
@@ -301,6 +347,7 @@ def evaluate_all(
     results_dir: Optional[Path] = None,
     skip_existing: bool = False,
     save_images: bool = True,
+    save_latents: bool = False,
     model_names: Optional[list[str]] = None,
     use_existing_images: bool = False,
 ) -> dict:
@@ -313,6 +360,7 @@ def evaluate_all(
         results_dir: Optional directory to save results incrementally. If None, results are not saved incrementally.
         skip_existing: If True, skip evaluations that already have results saved.
         save_images: If True, save generated/reconstructed images.
+        save_latents: If True, save latent representations as .npy files.
         model_names: Optional list of model names to evaluate. If None, evaluates all models.
         use_existing_images: If True, evaluate metrics from existing reconstructed images instead of regenerating.
         
@@ -374,9 +422,15 @@ def evaluate_all(
             # Set up image directories
             original_images_dir = None
             reconstructed_images_dir = None
+            latent_images_dir = None
             if results_dir is not None:
                 original_images_dir = results_dir / dataset_name / "images" / "original"
                 reconstructed_images_dir = results_dir / model_name / dataset_name / "images" / "reconstructed"
+            
+            # Set up latent directory (independent of results_dir, always use custom path when save_latents is True)
+            if save_latents:
+                # Use custom directory for latents: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{dataset_name}/
+                latent_images_dir = Path("/data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents") / dataset_name
             
             # Check if we should use existing images
             if use_existing_images:
@@ -420,6 +474,7 @@ def evaluate_all(
                 # Set up image saving directories
                 original_images_dir_save = original_images_dir if save_images else None
                 reconstructed_images_dir_save = reconstructed_images_dir if save_images else None
+                latent_images_dir_save = latent_images_dir if save_latents else None
                 
                 try:
                     metrics = evaluate_single(
@@ -429,6 +484,7 @@ def evaluate_all(
                         classes=classes,
                         original_images_dir=original_images_dir_save,
                         reconstructed_images_dir=reconstructed_images_dir_save,
+                        latent_images_dir=latent_images_dir_save,
                     )
                     results[model_name][dataset_name] = metrics.to_dict()
                     print(f"  {metrics}")
@@ -437,6 +493,10 @@ def evaluate_all(
                         print(f"  Reconstructed images saved to {reconstructed_images_dir_save}")
                     if original_images_dir_save is not None:
                         print(f"  Original images saved to {original_images_dir_save} (shared across models)")
+                    if latent_images_dir_save is not None:
+                        # Count saved files
+                        num_saved = len(list(latent_images_dir_save.glob("*.npy"))) if latent_images_dir_save.exists() else 0
+                        print(f"  Latent representations saved to {latent_images_dir_save} ({num_saved} files)")
                     
                     # Save incrementally after each evaluation
                     if results_dir is not None:

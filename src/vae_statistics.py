@@ -25,7 +25,12 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any
 from contextlib import nullcontext
 
-from config import VAE_CONFIGS, VAEConfig
+# Try relative imports first (when used as a package), fall back to absolute (when imported directly)
+try:
+    from .config import VAE_CONFIGS, VAEConfig
+except ImportError:
+    # Fall back to absolute imports when src is in path
+    from config import VAE_CONFIGS, VAEConfig
 
 
 @dataclass

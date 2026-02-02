@@ -13,8 +13,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 
-from models import load_vae, VAEWrapper
-from datasets import load_dataset, get_inverse_transform
+# Try relative imports first (when used as a package), fall back to absolute (when imported directly)
+try:
+    from .models import load_vae, VAEWrapper
+    from .datasets import load_dataset, get_inverse_transform
+except ImportError:
+    # Fall back to absolute imports when src is in path
+    from models import load_vae, VAEWrapper
+    from datasets import load_dataset, get_inverse_transform
 
 
 def tensor_to_image(tensor: torch.Tensor) -> np.ndarray:

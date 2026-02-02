@@ -1,3 +1,4 @@
+import io
 import math
 import random
 import sys
@@ -136,12 +137,41 @@ def load_images(images_dir: Path, filenames: List[str]) -> List[Image.Image]:
     return images
 
 
+def add_ground_truth_border(grid_image: Image.Image, num_cols: int, border_width: int = 3) -> Image.Image:
+    """Add a red vertical border rectangle on the ground truth column (leftmost column)."""
+    from PIL import ImageDraw
+    img_copy = grid_image.copy()
+    width, height = img_copy.size
+    draw = ImageDraw.Draw(img_copy)
+    
+    # Calculate the width of each column
+    col_width = width // num_cols
+    
+    # Draw red vertical rectangle on the leftmost column (ground truth)
+    # Rectangle spans from top to bottom
+    draw.rectangle(
+        [(0, 0), (col_width - 1, height - 1)],
+        outline="red",
+        width=border_width
+    )
+    
+    return img_copy
+
+
 def build_image_grid(images: List[Image.Image], columns: int) -> Optional[Image.Image]:
     if not images:
         return None
     columns = max(1, min(columns, len(images)))
     rows = math.ceil(len(images) / columns)
-    return make_image_grid(images, rows=rows, cols=columns)
+    required_count = rows * columns
+    # Pad images list to match the required grid size
+    padded_images = list(images)
+    if len(padded_images) < required_count:
+        # Pad with copies of the last image
+        last_image = padded_images[-1] if padded_images else None
+        if last_image:
+            padded_images.extend([last_image.copy() for _ in range(required_count - len(padded_images))])
+    return make_image_grid(padded_images, rows=rows, cols=columns)
 
 
 def main() -> None:
@@ -252,21 +282,122 @@ def main() -> None:
         st.session_state["sampled_filenames"] = random.sample(available_files, sample_size)
 
     sampled_filenames = st.session_state["sampled_filenames"]
-    grid_columns = min(6, len(sampled_filenames)) if sampled_filenames else 1
-
+    
+    # Load all images: ground truth + all model reconstructions
     original_images = load_images(original_dir, sampled_filenames)
-    original_grid = build_image_grid(original_images, grid_columns)
-    if original_grid:
-        st.image(original_grid, use_container_width=True)
-        st.caption(f"Ground truth ({dataset_name} | {class_choice})")
-
+    model_images_dict = {}
     for model_name in selected_models:
         recon_dir = resolved_results_dir / model_name / dataset_name / "images" / "reconstructed"
         recon_images = load_images(recon_dir, sampled_filenames)
-        recon_grid = build_image_grid(recon_images, grid_columns)
-        if recon_grid:
-            st.image(recon_grid, use_container_width=True)
-            st.caption(model_name)
+        model_images_dict[model_name] = recon_images
+    
+    # Build combined grid: rows = samples, columns = [Ground Truth, Model1, Model2, ...]
+    num_samples = len(sampled_filenames)
+    num_models = len(selected_models)
+    num_cols = 1 + num_models  # 1 for ground truth + models
+    
+    if num_samples > 0 and num_cols > 0:
+        # Create a blank white image for padding if needed
+        blank_image = None
+        if original_images:
+            blank_image = Image.new("RGB", original_images[0].size, color="white")
+        
+        # Arrange images row by row: each row is [gt, model1, model2, ...]
+        combined_images = []
+        for i in range(num_samples):
+            # Add ground truth image
+            if i < len(original_images):
+                combined_images.append(original_images[i])
+            elif original_images:
+                combined_images.append(original_images[-1].copy())
+            elif blank_image:
+                combined_images.append(blank_image.copy())
+            
+            # Add model images for this sample
+            for model_name in selected_models:
+                model_images = model_images_dict.get(model_name, [])
+                if i < len(model_images):
+                    combined_images.append(model_images[i])
+                elif model_images:
+                    combined_images.append(model_images[-1].copy())
+                elif blank_image:
+                    combined_images.append(blank_image.copy())
+        
+        # Ensure we have exactly rows * cols images
+        required_count = num_samples * num_cols
+        if len(combined_images) < required_count and combined_images:
+            # Pad with copies of the last image
+            last_image = combined_images[-1]
+            combined_images.extend([last_image.copy() for _ in range(required_count - len(combined_images))])
+        elif len(combined_images) > required_count:
+            # Trim if somehow we have too many
+            combined_images = combined_images[:required_count]
+        
+        if combined_images:
+            combined_grid = make_image_grid(combined_images, rows=num_samples, cols=num_cols)
+            # Add red border on the ground truth column (leftmost column)
+            combined_grid = add_ground_truth_border(combined_grid, num_cols)
+            st.image(combined_grid, use_container_width=True)
+            
+            # Create caption with column headers
+            headers = ["Ground Truth"] + list(selected_models)
+            st.caption(f"Columns: {' | '.join(headers)} | Rows: {num_samples} samples ({dataset_name} | {class_choice})")
+            
+            # Save buttons
+            col1, col2 = st.columns(2)
+            
+            # Generate filename
+            filename_base = f"{dataset_name}_{class_choice}_{'_'.join(selected_models)}_{num_samples}samples"
+            
+            # PNG download
+            png_buffer = io.BytesIO()
+            combined_grid.save(png_buffer, format="PNG")
+            png_buffer.seek(0)
+            col1.download_button(
+                label="Save as PNG",
+                data=png_buffer,
+                file_name=f"{filename_base}.png",
+                mime="image/png",
+                use_container_width=True
+            )
+            
+            # PDF download
+            try:
+                import img2pdf
+                pdf_buffer = io.BytesIO()
+                # Convert to RGB if needed
+                pdf_image = combined_grid.convert("RGB")
+                # Save image to bytes first
+                img_buffer = io.BytesIO()
+                pdf_image.save(img_buffer, format="PNG")
+                img_buffer.seek(0)
+                # Convert to PDF using img2pdf
+                pdf_bytes = img2pdf.convert(img_buffer)
+                pdf_buffer.write(pdf_bytes)
+                pdf_buffer.seek(0)
+                col2.download_button(
+                    label="Save as PDF",
+                    data=pdf_buffer,
+                    file_name=f"{filename_base}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except ImportError:
+                # Fallback: use PIL's PDF support (may not work on all systems)
+                pdf_buffer = io.BytesIO()
+                pdf_image = combined_grid.convert("RGB")
+                try:
+                    pdf_image.save(pdf_buffer, format="PDF")
+                    pdf_buffer.seek(0)
+                    col2.download_button(
+                        label="Save as PDF",
+                        data=pdf_buffer,
+                        file_name=f"{filename_base}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                except Exception:
+                    col2.warning("PDF export requires img2pdf library. Install with: pip install img2pdf")
 
 
 if __name__ == "__main__":
