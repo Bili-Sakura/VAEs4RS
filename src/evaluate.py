@@ -49,6 +49,7 @@ def evaluate_single(
     original_images_dir: Optional[Path] = None,
     reconstructed_images_dir: Optional[Path] = None,
     latent_images_dir: Optional[Path] = None,
+    skip_existing: bool = False,
 ) -> MetricResults:
     """
     Evaluate a single VAE on a single dataset.
@@ -89,16 +90,44 @@ def evaluate_single(
     # Determine input dtype based on model dtype (models use float16/bfloat16)
     model_dtype = next(vae.model.parameters()).dtype
     
+    skipped_count = 0
+    saved_count = 0
+    
     for batch_idx, (images, labels, paths) in enumerate(tqdm(dataloader, desc=f"Evaluating")):
         images = images.to(config.device, dtype=model_dtype)
         reconstructed = vae.reconstruct(images)
         calculator.update(images.float(), reconstructed.float())
         
-        # Encode to get latents if saving latents
-        latents = None
-        if latent_images_dir is not None:
-            with torch.no_grad():
-                latents = vae.encode(images)
+        # Check which latents need to be saved (if skip_existing is enabled)
+        indices_to_save = None
+        if latent_images_dir is not None and skip_existing:
+            indices_to_save = []
+            for i in range(images.shape[0]):
+                if paths and i < len(paths):
+                    original_path_obj = Path(paths[i])
+                    latent_filename = original_path_obj.stem + ".npz"
+                else:
+                    latent_filename = f"batch{batch_idx:04d}_idx{i:03d}.npz"
+                latent_path = latent_images_dir / latent_filename
+                if not latent_path.exists():
+                    indices_to_save.append(i)
+                else:
+                    skipped_count += 1
+            # Only encode if we have files to save
+            if len(indices_to_save) == 0:
+                # All files exist, skip encoding
+                latents = None
+            else:
+                # Encode latents (we'll filter when saving)
+                with torch.no_grad():
+                    latents = vae.encode(images)
+        else:
+            # Not skipping existing, encode all latents
+            if latent_images_dir is not None:
+                with torch.no_grad():
+                    latents = vae.encode(images)
+            else:
+                latents = None
         
         # Save images if requested
         if original_images_dir is not None or reconstructed_images_dir is not None or latent_images_dir is not None:
@@ -131,7 +160,7 @@ def evaluate_single(
                     save_tensor_as_image(reconstructed_cpu[i], str(reconstructed_path), normalize=True)
                 
                 # Save latent representation as compressed .npz file with float16
-                if latent_images_dir is not None and latents is not None:
+                if latent_images_dir is not None:
                     # Use original filename but replace extension with .npz
                     if paths and i < len(paths):
                         original_path_obj = Path(paths[i])
@@ -139,13 +168,24 @@ def evaluate_single(
                     else:
                         latent_filename = f"batch{batch_idx:04d}_idx{i:03d}.npz"
                     latent_path = latent_images_dir / latent_filename
-                    # Save latent as compressed npz with float16 for maximum compression
-                    # Convert to float16 for smaller file size (sufficient precision for latents)
-                    latent_np = latents[i].cpu().float().numpy().astype(np.float16)
-                    np.savez_compressed(str(latent_path), latent=latent_np)
-                    # Print progress every 100 files
-                    if (batch_idx * config.batch_size + i) % 100 == 0:
-                        print(f"  Saved {batch_idx * config.batch_size + i} latents to {latent_images_dir}")
+                    
+                    # Save latent if we have it and it needs to be saved
+                    # If indices_to_save is None (skip_existing=False), save all
+                    # If indices_to_save is set (skip_existing=True), only save indices in the list
+                    if latents is not None and (indices_to_save is None or i in indices_to_save):
+                        # Save latent as compressed npz with float16 for maximum compression
+                        # Convert to float16 for smaller file size (sufficient precision for latents)
+                        latent_np = latents[i].cpu().float().numpy().astype(np.float16)
+                        np.savez_compressed(str(latent_path), latent=latent_np)
+                        saved_count += 1
+                        # Print progress every 100 files
+                        if saved_count % 100 == 0:
+                            print(f"  Saved {saved_count} latents to {latent_images_dir} (skipped {skipped_count})")
+    
+    if skipped_count > 0:
+        print(f"  Skipped {skipped_count} existing latent files")
+    if saved_count > 0:
+        print(f"  Saved {saved_count} new latent files")
     
     return calculator.compute()
 
@@ -199,49 +239,87 @@ def evaluate_from_existing_images(
             f"Make sure the images exist."
         )
     
-    # Load and evaluate images
-    matched_count = 0
-    for reconstructed_image_path in tqdm(reconstructed_files, desc="Evaluating from existing images"):
+    # Filter to only files that have matching original images
+    valid_pairs = []
+    for reconstructed_image_path in reconstructed_files:
         save_filename = reconstructed_image_path.name
         original_image_path = original_images_dir / save_filename
+        if original_image_path.exists():
+            valid_pairs.append((original_image_path, reconstructed_image_path))
+    
+    if len(valid_pairs) == 0:
+        raise ValueError(
+            f"No matching image pairs found between {original_images_dir} and {reconstructed_images_dir}. "
+            f"Make sure the images exist and follow the naming convention."
+        )
+    
+    # Process images in batches
+    batch_size = config.batch_size
+    matched_count = 0
+    
+    def pad_to_size(img, target_h, target_w):
+        """Pad image to target size."""
+        h, w = img.shape[1], img.shape[2]
+        pad_h = target_h - h
+        pad_w = target_w - w
+        return torch.nn.functional.pad(
+            img,
+            (0, pad_w, 0, pad_h),
+            mode='constant',
+            value=-1.0
+        )
+    
+    for batch_start in tqdm(range(0, len(valid_pairs), batch_size), desc="Evaluating from existing images"):
+        batch_end = min(batch_start + batch_size, len(valid_pairs))
+        batch_pairs = valid_pairs[batch_start:batch_end]
         
-        # Skip if original image doesn't exist
-        if not original_image_path.exists():
+        # Load batch of images
+        original_batch = []
+        reconstructed_batch = []
+        
+        for orig_path, recon_path in batch_pairs:
+            try:
+                original_img = load_image_as_tensor(orig_path, config.device)
+                reconstructed_img = load_image_as_tensor(recon_path, config.device)
+                
+                # Ensure same size (pad if necessary)
+                if original_img.shape != reconstructed_img.shape:
+                    max_h = max(original_img.shape[1], reconstructed_img.shape[1])
+                    max_w = max(original_img.shape[2], reconstructed_img.shape[2])
+                    original_img = pad_to_size(original_img, max_h, max_w)
+                    reconstructed_img = pad_to_size(reconstructed_img, max_h, max_w)
+                
+                original_batch.append(original_img)
+                reconstructed_batch.append(reconstructed_img)
+            except Exception as e:
+                print(f"Warning: Failed to process {orig_path.name}: {e}")
+                continue
+        
+        if len(original_batch) == 0:
             continue
         
-        try:
-            # Load images
-            original_img = load_image_as_tensor(original_image_path, config.device)
-            reconstructed_img = load_image_as_tensor(reconstructed_image_path, config.device)
-            
-            # Ensure same size (pad if necessary)
-            if original_img.shape != reconstructed_img.shape:
-                max_h = max(original_img.shape[1], reconstructed_img.shape[1])
-                max_w = max(original_img.shape[2], reconstructed_img.shape[2])
-                
-                def pad_to_size(img, target_h, target_w):
-                    h, w = img.shape[1], img.shape[2]
-                    pad_h = target_h - h
-                    pad_w = target_w - w
-                    return torch.nn.functional.pad(
-                        img,
-                        (0, pad_w, 0, pad_h),
-                        mode='constant',
-                        value=-1.0
-                    )
-                
-                original_img = pad_to_size(original_img, max_h, max_w)
-                reconstructed_img = pad_to_size(reconstructed_img, max_h, max_w)
-            
-            # Add batch dimension and update metrics
-            original_img = original_img.unsqueeze(0)
-            reconstructed_img = reconstructed_img.unsqueeze(0)
-            
-            calculator.update(original_img, reconstructed_img)
-            matched_count += 1
-        except Exception as e:
-            print(f"Warning: Failed to process {save_filename}: {e}")
-            continue
+        # Find max dimensions in batch for padding to same size
+        max_h = max(img.shape[1] for img in original_batch + reconstructed_batch)
+        max_w = max(img.shape[2] for img in original_batch + reconstructed_batch)
+        
+        # Pad all images to same size and stack into batch
+        original_batch_padded = []
+        reconstructed_batch_padded = []
+        for orig_img, recon_img in zip(original_batch, reconstructed_batch):
+            if orig_img.shape[1] != max_h or orig_img.shape[2] != max_w:
+                orig_img = pad_to_size(orig_img, max_h, max_w)
+            if recon_img.shape[1] != max_h or recon_img.shape[2] != max_w:
+                recon_img = pad_to_size(recon_img, max_h, max_w)
+            original_batch_padded.append(orig_img)
+            reconstructed_batch_padded.append(recon_img)
+        
+        # Stack into batch tensors
+        original_batch_tensor = torch.stack(original_batch_padded)
+        reconstructed_batch_tensor = torch.stack(reconstructed_batch_padded)
+        
+        # Update metrics with batch
+        calculator.update(original_batch_tensor, reconstructed_batch_tensor)
+        matched_count += len(original_batch_padded)
     
     if matched_count == 0:
         raise ValueError(
@@ -485,6 +563,7 @@ def evaluate_all(
                         original_images_dir=original_images_dir_save,
                         reconstructed_images_dir=reconstructed_images_dir_save,
                         latent_images_dir=latent_images_dir_save,
+                        skip_existing=skip_existing,
                     )
                     results[model_name][dataset_name] = metrics.to_dict()
                     print(f"  {metrics}")
@@ -494,8 +573,8 @@ def evaluate_all(
                     if original_images_dir_save is not None:
                         print(f"  Original images saved to {original_images_dir_save} (shared across models)")
                     if latent_images_dir_save is not None:
-                        # Count saved files
-                        num_saved = len(list(latent_images_dir_save.glob("*.npy"))) if latent_images_dir_save.exists() else 0
+                        # Count saved files (check for .npz files, not .npy)
+                        num_saved = len(list(latent_images_dir_save.glob("*.npz"))) if latent_images_dir_save.exists() else 0
                         print(f"  Latent representations saved to {latent_images_dir_save} ({num_saved} files)")
                     
                     # Save incrementally after each evaluation

@@ -5,6 +5,7 @@ using the same filename as the input (with .npz extension, compressed format wit
 """
 
 import sys
+import argparse
 from pathlib import Path
 
 # Add src to path
@@ -15,15 +16,21 @@ from evaluate import evaluate_all
 from utils import set_seed
 
 def main():
+    parser = argparse.ArgumentParser(description="Save FLUX2-VAE latents for datasets")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip files that already exist")
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size for processing")
+    parser.add_argument("--device", type=str, default="cuda", help="Device to use (default: cuda)")
+    args = parser.parse_args()
+    
     # Set seed for reproducibility
     set_seed(42)
     
     # Configuration
     config = EvalConfig(
-        batch_size=64,
+        batch_size=args.batch_size,
         image_size=None,  # Use original image sizes
         output_dir="datasets/BiliSakura/VAEs4RS",
-        device="cuda",
+        device=args.device,
         seed=42,
     )
     
@@ -35,6 +42,7 @@ def main():
     print(f"  Image size:  Original sizes")
     print(f"  Device:      {config.device}")
     print(f"  Model:       FLUX2-VAE")
+    print(f"  Skip existing: {args.skip_existing}")
     print(f"  Latent output: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{{dataset_name}}/")
     print()
     
@@ -48,7 +56,7 @@ def main():
         config,
         dataset_classes=None,  # All classes
         results_dir=None,  # Don't save results/metrics, only latents
-        skip_existing=False,
+        skip_existing=args.skip_existing,
         save_images=False,  # Don't save images, only latents
         save_latents=True,  # Save latents
         model_names=["FLUX2-VAE"],  # Only FLUX2-VAE
