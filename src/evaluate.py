@@ -501,114 +501,116 @@ def evaluate_all(
                 print(f"Failed to load {model_name}: {e}")
                 continue
         
-        for dataset_name in DATASET_CONFIGS:
-            classes = dataset_classes.get(dataset_name) if dataset_classes else None
-            class_info = f" (classes: {', '.join(classes)})" if classes else ""
-            
-            # Check if we should skip this evaluation
-            if skip_existing and results_path and results_path.exists():
-                if (model_name in existing_results and 
-                    dataset_name in existing_results[model_name] and
-                    existing_results[model_name][dataset_name] is not None):
-                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (already exists)...")
-                    results[model_name][dataset_name] = existing_results[model_name][dataset_name]
-                    continue
-            
-            # Set up image directories
-            original_images_dir = None
-            reconstructed_images_dir = None
-            latent_images_dir = None
-            if results_dir is not None:
-                original_images_dir = results_dir / dataset_name / "images" / "original"
-                reconstructed_images_dir = results_dir / model_name / dataset_name / "images" / "reconstructed"
-            
-            # Set up latent directory (independent of results_dir, always use custom path when save_latents is True)
-            if save_latents:
-                # Use custom directory for latents: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{dataset_name}/
-                latent_images_dir = Path("/data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents") / dataset_name
-            
-            # Check if we should use existing images
-            if use_existing_images:
-                if reconstructed_images_dir is None or not reconstructed_images_dir.exists():
-                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no reconstructed images found at {reconstructed_images_dir})...")
-                    results[model_name][dataset_name] = None
-                    continue
+        try:
+            for dataset_name in DATASET_CONFIGS:
+                classes = dataset_classes.get(dataset_name) if dataset_classes else None
+                class_info = f" (classes: {', '.join(classes)})" if classes else ""
                 
-                if original_images_dir is None or not original_images_dir.exists():
-                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no original images found at {original_images_dir})...")
-                    results[model_name][dataset_name] = None
-                    continue
+                # Check if we should skip this evaluation
+                if skip_existing and results_path and results_path.exists():
+                    if (model_name in existing_results and 
+                        dataset_name in existing_results[model_name] and
+                        existing_results[model_name][dataset_name] is not None):
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (already exists)...")
+                        results[model_name][dataset_name] = existing_results[model_name][dataset_name]
+                        continue
                 
-                print(f"\nEvaluating {model_name} on {dataset_name}{class_info} from existing images...")
+                # Set up image directories
+                original_images_dir = None
+                reconstructed_images_dir = None
+                latent_images_dir = None
+                if results_dir is not None:
+                    original_images_dir = results_dir / dataset_name / "images" / "original"
+                    reconstructed_images_dir = results_dir / model_name / dataset_name / "images" / "reconstructed"
                 
-                try:
-                    metrics = evaluate_from_existing_images(
-                        dataset_name,
-                        config,
-                        original_images_dir=original_images_dir,
-                        reconstructed_images_dir=reconstructed_images_dir,
-                        classes=classes,
-                    )
-                    results[model_name][dataset_name] = metrics.to_dict()
-                    print(f"  {metrics}")
+                # Set up latent directory (independent of results_dir, always use custom path when save_latents is True)
+                if save_latents:
+                    # Use custom directory for latents: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{dataset_name}/
+                    latent_images_dir = Path("/data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents") / dataset_name
+                
+                # Check if we should use existing images
+                if use_existing_images:
+                    if reconstructed_images_dir is None or not reconstructed_images_dir.exists():
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no reconstructed images found at {reconstructed_images_dir})...")
+                        results[model_name][dataset_name] = None
+                        continue
                     
-                    # Save incrementally after each evaluation
-                    if results_dir is not None:
-                        save_results_incremental(
-                            {model_name: {dataset_name: results[model_name][dataset_name]}},
-                            results_path
+                    if original_images_dir is None or not original_images_dir.exists():
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no original images found at {original_images_dir})...")
+                        results[model_name][dataset_name] = None
+                        continue
+                    
+                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info} from existing images...")
+                    
+                    try:
+                        metrics = evaluate_from_existing_images(
+                            dataset_name,
+                            config,
+                            original_images_dir=original_images_dir,
+                            reconstructed_images_dir=reconstructed_images_dir,
+                            classes=classes,
                         )
-                        print(f"  Results saved to {results_path}")
-                except Exception as e:
-                    print(f"  Failed: {e}")
-                    results[model_name][dataset_name] = None
-            else:
-                # Normal evaluation with VAE model
-                print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
-                
-                # Set up image saving directories
-                original_images_dir_save = original_images_dir if save_images else None
-                reconstructed_images_dir_save = reconstructed_images_dir if save_images else None
-                latent_images_dir_save = latent_images_dir if save_latents else None
-                
-                try:
-                    metrics = evaluate_single(
-                        vae, 
-                        dataset_name, 
-                        config, 
-                        classes=classes,
-                        original_images_dir=original_images_dir_save,
-                        reconstructed_images_dir=reconstructed_images_dir_save,
-                        latent_images_dir=latent_images_dir_save,
-                        skip_existing=skip_existing,
-                    )
-                    results[model_name][dataset_name] = metrics.to_dict()
-                    print(f"  {metrics}")
+                        results[model_name][dataset_name] = metrics.to_dict()
+                        print(f"  {metrics}")
+                        
+                        # Save incrementally after each evaluation
+                        if results_dir is not None:
+                            save_results_incremental(
+                                {model_name: {dataset_name: results[model_name][dataset_name]}},
+                                results_path
+                            )
+                            print(f"  Results saved to {results_path}")
+                    except Exception as e:
+                        print(f"  Failed: {e}")
+                        results[model_name][dataset_name] = None
+                else:
+                    # Normal evaluation with VAE model
+                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
                     
-                    if reconstructed_images_dir_save is not None:
-                        print(f"  Reconstructed images saved to {reconstructed_images_dir_save}")
-                    if original_images_dir_save is not None:
-                        print(f"  Original images saved to {original_images_dir_save} (shared across models)")
-                    if latent_images_dir_save is not None:
-                        # Count saved files (check for .npz files, not .npy)
-                        num_saved = len(list(latent_images_dir_save.glob("*.npz"))) if latent_images_dir_save.exists() else 0
-                        print(f"  Latent representations saved to {latent_images_dir_save} ({num_saved} files)")
+                    # Set up image saving directories
+                    original_images_dir_save = original_images_dir if save_images else None
+                    reconstructed_images_dir_save = reconstructed_images_dir if save_images else None
+                    latent_images_dir_save = latent_images_dir if save_latents else None
                     
-                    # Save incrementally after each evaluation
-                    if results_dir is not None:
-                        save_results_incremental(
-                            {model_name: {dataset_name: results[model_name][dataset_name]}},
-                            results_path
+                    try:
+                        metrics = evaluate_single(
+                            vae, 
+                            dataset_name, 
+                            config, 
+                            classes=classes,
+                            original_images_dir=original_images_dir_save,
+                            reconstructed_images_dir=reconstructed_images_dir_save,
+                            latent_images_dir=latent_images_dir_save,
+                            skip_existing=skip_existing,
                         )
-                        print(f"  Results saved to {results_path}")
-                except Exception as e:
-                    print(f"  Failed: {e}")
-                    results[model_name][dataset_name] = None
-        
-        # Clear GPU memory
-        if vae is not None:
-            del vae
-            torch.cuda.empty_cache()
+                        results[model_name][dataset_name] = metrics.to_dict()
+                        print(f"  {metrics}")
+                        
+                        if reconstructed_images_dir_save is not None:
+                            print(f"  Reconstructed images saved to {reconstructed_images_dir_save}")
+                        if original_images_dir_save is not None:
+                            print(f"  Original images saved to {original_images_dir_save} (shared across models)")
+                        if latent_images_dir_save is not None:
+                            # Count saved files (check for .npz files, not .npy)
+                            num_saved = len(list(latent_images_dir_save.glob("*.npz"))) if latent_images_dir_save.exists() else 0
+                            print(f"  Latent representations saved to {latent_images_dir_save} ({num_saved} files)")
+                        
+                        # Save incrementally after each evaluation
+                        if results_dir is not None:
+                            save_results_incremental(
+                                {model_name: {dataset_name: results[model_name][dataset_name]}},
+                                results_path
+                            )
+                            print(f"  Results saved to {results_path}")
+                    except Exception as e:
+                        print(f"  Failed: {e}")
+                        results[model_name][dataset_name] = None
+        finally:
+            # Clear GPU memory after processing all datasets for this model
+            if vae is not None:
+                del vae
+                if config.device.startswith("cuda"):
+                    torch.cuda.empty_cache()
     
     return results
 
@@ -682,21 +684,26 @@ def main():
         print_results_table(results)
     elif args.model and args.dataset:
         vae = load_vae(args.model, device=config.device)
-        # For single evaluation, use model-specific directories
-        output_path = Path(args.output_dir)
-        original_images_dir = output_path / args.dataset / "images" / "original"
-        reconstructed_images_dir = output_path / args.model / args.dataset / "images" / "reconstructed"
-        metrics = evaluate_single(
-            vae, 
-            args.dataset, 
-            config,
-            original_images_dir=original_images_dir,
-            reconstructed_images_dir=reconstructed_images_dir,
-        )
-        print(f"\n{args.model} on {args.dataset}: {metrics}")
-        
-        results = {args.model: {args.dataset: metrics.to_dict()}}
-        save_results(results, config.output_dir)
+        try:
+            # For single evaluation, use model-specific directories
+            output_path = Path(args.output_dir)
+            original_images_dir = output_path / args.dataset / "images" / "original"
+            reconstructed_images_dir = output_path / args.model / args.dataset / "images" / "reconstructed"
+            metrics = evaluate_single(
+                vae, 
+                args.dataset, 
+                config,
+                original_images_dir=original_images_dir,
+                reconstructed_images_dir=reconstructed_images_dir,
+            )
+            print(f"\n{args.model} on {args.dataset}: {metrics}")
+            
+            results = {args.model: {args.dataset: metrics.to_dict()}}
+            save_results(results, config.output_dir)
+        finally:
+            # Clear GPU memory
+            del vae
+            torch.cuda.empty_cache()
     else:
         parser.print_help()
         print("\nExamples:")

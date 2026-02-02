@@ -338,7 +338,7 @@ def get_vae_statistics(
     latent_elements = latent_c * latent_h * latent_w
     data_compression_ratio = input_elements / latent_elements
     
-    return VAEStatistics(
+    stats = VAEStatistics(
         name=model_name,
         total_params=total_params,
         encoder_params=encoder_params,
@@ -355,6 +355,13 @@ def get_vae_statistics(
         scaling_factor=config.scaling_factor,
         dtype=model_dtype,
     )
+    
+    # Clear GPU memory
+    del vae
+    if device.startswith("cuda"):
+        torch.cuda.empty_cache()
+    
+    return stats
 
 
 def get_all_vae_statistics(
@@ -384,10 +391,7 @@ def get_all_vae_statistics(
             print(f"  {stats[name]}")
         except Exception as e:
             print(f"  Failed to calculate statistics for {name}: {e}")
-    
-    # Clear GPU cache after processing each model
-    if device.startswith("cuda"):
-        torch.cuda.empty_cache()
+        # Note: GPU cleanup is handled inside get_vae_statistics()
     
     return stats
 
