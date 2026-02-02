@@ -71,6 +71,16 @@ python run_experiments.py
 python run_experiments.py --ablation-only
 ```
 
+### 5. Streamlit visualization for saved results
+
+```bash
+streamlit run streamlit_app.py
+```
+
+By default, the app looks for saved results in `datasets/BiliSakura/VAEs4RS`.
+Use the sidebar to select the dataset, class category, number of samples, and
+randomize the displayed grids.
+
 ## Metrics
 
 - **PSNR** (Peak Signal-to-Noise Ratio): Higher is better
