@@ -94,15 +94,15 @@ def evaluate_single(
     saved_count = 0
     
     for batch_idx, (images, labels, paths) in enumerate(tqdm(dataloader, desc=f"Evaluating")):
-        images = images.to(config.device, dtype=model_dtype)
-        reconstructed = vae.reconstruct(images)
-        calculator.update(images.float(), reconstructed.float())
-        
         # Check which latents need to be saved (if skip_existing is enabled)
+        # Do this BEFORE processing the batch to avoid unnecessary computation
         indices_to_save = None
+        batch_skipped = 0
+        
         if latent_images_dir is not None and skip_existing:
             indices_to_save = []
-            for i in range(images.shape[0]):
+            batch_size = images.shape[0]
+            for i in range(batch_size):
                 if paths and i < len(paths):
                     original_path_obj = Path(paths[i])
                     latent_filename = original_path_obj.stem + ".npz"
@@ -113,21 +113,32 @@ def evaluate_single(
                     indices_to_save.append(i)
                 else:
                     skipped_count += 1
-            # Only encode if we have files to save
+                    batch_skipped += 1
+            
+            # If all files exist, skip the entire batch (no encoding, no reconstruction)
             if len(indices_to_save) == 0:
-                # All files exist, skip encoding
-                latents = None
+                # Print progress for skipped batches
+                if batch_skipped > 0 and (skipped_count % 1000 == 0 or batch_idx % 10 == 0):
+                    tqdm.write(f"  Skipped batch {batch_idx}: {batch_skipped} files already exist (total skipped: {skipped_count})")
+                continue  # Skip entire batch processing - no reconstruction, no encoding, no metrics
+        
+        # Process batch only if we need to (not all files exist)
+        images = images.to(config.device, dtype=model_dtype)
+        reconstructed = vae.reconstruct(images)
+        calculator.update(images.float(), reconstructed.float())
+        
+        # Encode latents if needed
+        if latent_images_dir is not None:
+            if indices_to_save is not None:
+                # Some files exist, encode all (we'll filter when saving)
+                with torch.no_grad():
+                    latents = vae.encode(images)
             else:
-                # Encode latents (we'll filter when saving)
+                # Not skipping existing, encode all latents
                 with torch.no_grad():
                     latents = vae.encode(images)
         else:
-            # Not skipping existing, encode all latents
-            if latent_images_dir is not None:
-                with torch.no_grad():
-                    latents = vae.encode(images)
-            else:
-                latents = None
+            latents = None
         
         # Save images if requested
         if original_images_dir is not None or reconstructed_images_dir is not None or latent_images_dir is not None:
@@ -179,13 +190,19 @@ def evaluate_single(
                         np.savez_compressed(str(latent_path), latent=latent_np)
                         saved_count += 1
                         # Print progress every 100 files
-                        if saved_count % 100 == 0:
-                            print(f"  Saved {saved_count} latents to {latent_images_dir} (skipped {skipped_count})")
+                        total_processed = saved_count + skipped_count
+                        if total_processed % 500 == 0:
+                            tqdm.write(f"  Progress: Saved {saved_count} latents, Skipped {skipped_count} existing files")
     
-    if skipped_count > 0:
-        print(f"  Skipped {skipped_count} existing latent files")
-    if saved_count > 0:
-        print(f"  Saved {saved_count} new latent files")
+    # Print final summary
+    if skip_existing and latent_images_dir is not None:
+        print(f"\n  Final summary:")
+        if skipped_count > 0:
+            print(f"    Skipped {skipped_count} existing latent files")
+        if saved_count > 0:
+            print(f"    Saved {saved_count} new latent files")
+        if skipped_count == 0 and saved_count == 0:
+            print(f"    No latents processed")
     
     return calculator.compute()
 
