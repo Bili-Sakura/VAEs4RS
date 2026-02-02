@@ -7,22 +7,38 @@ Usage:
 """
 
 import os
+import sys
 import argparse
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Add src to path to allow absolute imports
+current_file = Path(__file__).resolve()
+src_dir = current_file.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import torch
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
-from models import load_vae, VAEWrapper
-from datasets import load_dataset
-from metrics import MetricCalculator, MetricResults
-from utils import save_tensor_as_image
+# Try relative imports first (when used as a package), fall back to absolute (when imported directly)
+try:
+    from .config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from .models import load_vae, VAEWrapper
+    from .datasets import load_dataset
+    from .metrics import MetricCalculator, MetricResults
+    from .utils import save_tensor_as_image
+except ImportError:
+    # Fall back to absolute imports when src is in path
+    from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from models import load_vae, VAEWrapper
+    from datasets import load_dataset
+    from metrics import MetricCalculator, MetricResults
+    from utils import save_tensor_as_image
 
 
 def evaluate_single(
@@ -32,6 +48,8 @@ def evaluate_single(
     classes: Optional[list[str]] = None,
     original_images_dir: Optional[Path] = None,
     reconstructed_images_dir: Optional[Path] = None,
+    latent_images_dir: Optional[Path] = None,
+    skip_existing: bool = False,
 ) -> MetricResults:
     """
     Evaluate a single VAE on a single dataset.
@@ -45,6 +63,8 @@ def evaluate_single(
                              If None, original images are not saved.
         reconstructed_images_dir: Optional directory to save reconstructed images (per model).
                                   If None, reconstructed images are not saved.
+        latent_images_dir: Optional directory to save latent representations as .npy files (per model).
+                           If None, latent images are not saved.
         
     Returns:
         MetricResults
@@ -64,17 +84,64 @@ def evaluate_single(
         original_images_dir.mkdir(parents=True, exist_ok=True)
     if reconstructed_images_dir is not None:
         reconstructed_images_dir.mkdir(parents=True, exist_ok=True)
+    if latent_images_dir is not None:
+        latent_images_dir.mkdir(parents=True, exist_ok=True)
     
     # Determine input dtype based on model dtype (models use float16/bfloat16)
     model_dtype = next(vae.model.parameters()).dtype
     
+    skipped_count = 0
+    saved_count = 0
+    
     for batch_idx, (images, labels, paths) in enumerate(tqdm(dataloader, desc=f"Evaluating")):
+        # Check which latents need to be saved (if skip_existing is enabled)
+        # Do this BEFORE processing the batch to avoid unnecessary computation
+        indices_to_save = None
+        batch_skipped = 0
+        
+        if latent_images_dir is not None and skip_existing:
+            indices_to_save = []
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                if paths and i < len(paths):
+                    original_path_obj = Path(paths[i])
+                    latent_filename = original_path_obj.stem + ".npz"
+                else:
+                    latent_filename = f"batch{batch_idx:04d}_idx{i:03d}.npz"
+                latent_path = latent_images_dir / latent_filename
+                if not latent_path.exists():
+                    indices_to_save.append(i)
+                else:
+                    skipped_count += 1
+                    batch_skipped += 1
+            
+            # If all files exist, skip the entire batch (no encoding, no reconstruction)
+            if len(indices_to_save) == 0:
+                # Print progress for skipped batches
+                if batch_skipped > 0 and (skipped_count % 1000 == 0 or batch_idx % 10 == 0):
+                    tqdm.write(f"  Skipped batch {batch_idx}: {batch_skipped} files already exist (total skipped: {skipped_count})")
+                continue  # Skip entire batch processing - no reconstruction, no encoding, no metrics
+        
+        # Process batch only if we need to (not all files exist)
         images = images.to(config.device, dtype=model_dtype)
         reconstructed = vae.reconstruct(images)
         calculator.update(images.float(), reconstructed.float())
         
+        # Encode latents if needed
+        if latent_images_dir is not None:
+            if indices_to_save is not None:
+                # Some files exist, encode all (we'll filter when saving)
+                with torch.no_grad():
+                    latents = vae.encode(images)
+            else:
+                # Not skipping existing, encode all latents
+                with torch.no_grad():
+                    latents = vae.encode(images)
+        else:
+            latents = None
+        
         # Save images if requested
-        if original_images_dir is not None or reconstructed_images_dir is not None:
+        if original_images_dir is not None or reconstructed_images_dir is not None or latent_images_dir is not None:
             images_cpu = images.float().cpu()
             reconstructed_cpu = reconstructed.float().cpu()
             
@@ -84,22 +151,58 @@ def evaluate_single(
                     # Get the base filename from the original path
                     original_path = Path(paths[i])
                     filename = original_path.stem  # filename without extension
+                    original_filename = original_path.name  # filename with extension
                     # Use batch index and sample index to ensure unique names
-                    save_filename = f"{filename}_batch{batch_idx:04d}_idx{i:03d}.png"
+                    save_filename_base = f"{filename}_batch{batch_idx:04d}_idx{i:03d}"
                 else:
                     # Fallback if paths not available
-                    save_filename = f"batch{batch_idx:04d}_idx{i:03d}.png"
+                    save_filename_base = f"batch{batch_idx:04d}_idx{i:03d}"
+                    original_filename = f"batch{batch_idx:04d}_idx{i:03d}.png"
                 
                 # Save original image (only if directory provided and file doesn't exist)
                 if original_images_dir is not None:
-                    original_path = original_images_dir / save_filename
+                    original_path = original_images_dir / f"{save_filename_base}.png"
                     if not original_path.exists():
                         save_tensor_as_image(images_cpu[i], str(original_path), normalize=True)
                 
                 # Save reconstructed image
                 if reconstructed_images_dir is not None:
-                    reconstructed_path = reconstructed_images_dir / save_filename
+                    reconstructed_path = reconstructed_images_dir / f"{save_filename_base}.png"
                     save_tensor_as_image(reconstructed_cpu[i], str(reconstructed_path), normalize=True)
+                
+                # Save latent representation as compressed .npz file with float16
+                if latent_images_dir is not None:
+                    # Use original filename but replace extension with .npz
+                    if paths and i < len(paths):
+                        original_path_obj = Path(paths[i])
+                        latent_filename = original_path_obj.stem + ".npz"
+                    else:
+                        latent_filename = f"batch{batch_idx:04d}_idx{i:03d}.npz"
+                    latent_path = latent_images_dir / latent_filename
+                    
+                    # Save latent if we have it and it needs to be saved
+                    # If indices_to_save is None (skip_existing=False), save all
+                    # If indices_to_save is set (skip_existing=True), only save indices in the list
+                    if latents is not None and (indices_to_save is None or i in indices_to_save):
+                        # Save latent as compressed npz with float16 for maximum compression
+                        # Convert to float16 for smaller file size (sufficient precision for latents)
+                        latent_np = latents[i].cpu().float().numpy().astype(np.float16)
+                        np.savez_compressed(str(latent_path), latent=latent_np)
+                        saved_count += 1
+                        # Print progress every 100 files
+                        total_processed = saved_count + skipped_count
+                        if total_processed % 500 == 0:
+                            tqdm.write(f"  Progress: Saved {saved_count} latents, Skipped {skipped_count} existing files")
+    
+    # Print final summary
+    if skip_existing and latent_images_dir is not None:
+        print(f"\n  Final summary:")
+        if skipped_count > 0:
+            print(f"    Skipped {skipped_count} existing latent files")
+        if saved_count > 0:
+            print(f"    Saved {saved_count} new latent files")
+        if skipped_count == 0 and saved_count == 0:
+            print(f"    No latents processed")
     
     return calculator.compute()
 
@@ -153,49 +256,87 @@ def evaluate_from_existing_images(
             f"Make sure the images exist."
         )
     
-    # Load and evaluate images
-    matched_count = 0
-    for reconstructed_image_path in tqdm(reconstructed_files, desc="Evaluating from existing images"):
+    # Filter to only files that have matching original images
+    valid_pairs = []
+    for reconstructed_image_path in reconstructed_files:
         save_filename = reconstructed_image_path.name
         original_image_path = original_images_dir / save_filename
+        if original_image_path.exists():
+            valid_pairs.append((original_image_path, reconstructed_image_path))
+    
+    if len(valid_pairs) == 0:
+        raise ValueError(
+            f"No matching image pairs found between {original_images_dir} and {reconstructed_images_dir}. "
+            f"Make sure the images exist and follow the naming convention."
+        )
+    
+    # Process images in batches
+    batch_size = config.batch_size
+    matched_count = 0
+    
+    def pad_to_size(img, target_h, target_w):
+        """Pad image to target size."""
+        h, w = img.shape[1], img.shape[2]
+        pad_h = target_h - h
+        pad_w = target_w - w
+        return torch.nn.functional.pad(
+            img,
+            (0, pad_w, 0, pad_h),
+            mode='constant',
+            value=-1.0
+        )
+    
+    for batch_start in tqdm(range(0, len(valid_pairs), batch_size), desc="Evaluating from existing images"):
+        batch_end = min(batch_start + batch_size, len(valid_pairs))
+        batch_pairs = valid_pairs[batch_start:batch_end]
         
-        # Skip if original image doesn't exist
-        if not original_image_path.exists():
+        # Load batch of images
+        original_batch = []
+        reconstructed_batch = []
+        
+        for orig_path, recon_path in batch_pairs:
+            try:
+                original_img = load_image_as_tensor(orig_path, config.device)
+                reconstructed_img = load_image_as_tensor(recon_path, config.device)
+                
+                # Ensure same size (pad if necessary)
+                if original_img.shape != reconstructed_img.shape:
+                    max_h = max(original_img.shape[1], reconstructed_img.shape[1])
+                    max_w = max(original_img.shape[2], reconstructed_img.shape[2])
+                    original_img = pad_to_size(original_img, max_h, max_w)
+                    reconstructed_img = pad_to_size(reconstructed_img, max_h, max_w)
+                
+                original_batch.append(original_img)
+                reconstructed_batch.append(reconstructed_img)
+            except Exception as e:
+                print(f"Warning: Failed to process {orig_path.name}: {e}")
+                continue
+        
+        if len(original_batch) == 0:
             continue
         
-        try:
-            # Load images
-            original_img = load_image_as_tensor(original_image_path, config.device)
-            reconstructed_img = load_image_as_tensor(reconstructed_image_path, config.device)
-            
-            # Ensure same size (pad if necessary)
-            if original_img.shape != reconstructed_img.shape:
-                max_h = max(original_img.shape[1], reconstructed_img.shape[1])
-                max_w = max(original_img.shape[2], reconstructed_img.shape[2])
-                
-                def pad_to_size(img, target_h, target_w):
-                    h, w = img.shape[1], img.shape[2]
-                    pad_h = target_h - h
-                    pad_w = target_w - w
-                    return torch.nn.functional.pad(
-                        img,
-                        (0, pad_w, 0, pad_h),
-                        mode='constant',
-                        value=-1.0
-                    )
-                
-                original_img = pad_to_size(original_img, max_h, max_w)
-                reconstructed_img = pad_to_size(reconstructed_img, max_h, max_w)
-            
-            # Add batch dimension and update metrics
-            original_img = original_img.unsqueeze(0)
-            reconstructed_img = reconstructed_img.unsqueeze(0)
-            
-            calculator.update(original_img, reconstructed_img)
-            matched_count += 1
-        except Exception as e:
-            print(f"Warning: Failed to process {save_filename}: {e}")
-            continue
+        # Find max dimensions in batch for padding to same size
+        max_h = max(img.shape[1] for img in original_batch + reconstructed_batch)
+        max_w = max(img.shape[2] for img in original_batch + reconstructed_batch)
+        
+        # Pad all images to same size and stack into batch
+        original_batch_padded = []
+        reconstructed_batch_padded = []
+        for orig_img, recon_img in zip(original_batch, reconstructed_batch):
+            if orig_img.shape[1] != max_h or orig_img.shape[2] != max_w:
+                orig_img = pad_to_size(orig_img, max_h, max_w)
+            if recon_img.shape[1] != max_h or recon_img.shape[2] != max_w:
+                recon_img = pad_to_size(recon_img, max_h, max_w)
+            original_batch_padded.append(orig_img)
+            reconstructed_batch_padded.append(recon_img)
+        
+        # Stack into batch tensors
+        original_batch_tensor = torch.stack(original_batch_padded)
+        reconstructed_batch_tensor = torch.stack(reconstructed_batch_padded)
+        
+        # Update metrics with batch
+        calculator.update(original_batch_tensor, reconstructed_batch_tensor)
+        matched_count += len(original_batch_padded)
     
     if matched_count == 0:
         raise ValueError(
@@ -301,6 +442,7 @@ def evaluate_all(
     results_dir: Optional[Path] = None,
     skip_existing: bool = False,
     save_images: bool = True,
+    save_latents: bool = False,
     model_names: Optional[list[str]] = None,
     use_existing_images: bool = False,
 ) -> dict:
@@ -313,6 +455,7 @@ def evaluate_all(
         results_dir: Optional directory to save results incrementally. If None, results are not saved incrementally.
         skip_existing: If True, skip evaluations that already have results saved.
         save_images: If True, save generated/reconstructed images.
+        save_latents: If True, save latent representations as .npy files.
         model_names: Optional list of model names to evaluate. If None, evaluates all models.
         use_existing_images: If True, evaluate metrics from existing reconstructed images instead of regenerating.
         
@@ -358,101 +501,116 @@ def evaluate_all(
                 print(f"Failed to load {model_name}: {e}")
                 continue
         
-        for dataset_name in DATASET_CONFIGS:
-            classes = dataset_classes.get(dataset_name) if dataset_classes else None
-            class_info = f" (classes: {', '.join(classes)})" if classes else ""
-            
-            # Check if we should skip this evaluation
-            if skip_existing and results_path and results_path.exists():
-                if (model_name in existing_results and 
-                    dataset_name in existing_results[model_name] and
-                    existing_results[model_name][dataset_name] is not None):
-                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (already exists)...")
-                    results[model_name][dataset_name] = existing_results[model_name][dataset_name]
-                    continue
-            
-            # Set up image directories
-            original_images_dir = None
-            reconstructed_images_dir = None
-            if results_dir is not None:
-                original_images_dir = results_dir / dataset_name / "images" / "original"
-                reconstructed_images_dir = results_dir / model_name / dataset_name / "images" / "reconstructed"
-            
-            # Check if we should use existing images
-            if use_existing_images:
-                if reconstructed_images_dir is None or not reconstructed_images_dir.exists():
-                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no reconstructed images found at {reconstructed_images_dir})...")
-                    results[model_name][dataset_name] = None
-                    continue
+        try:
+            for dataset_name in DATASET_CONFIGS:
+                classes = dataset_classes.get(dataset_name) if dataset_classes else None
+                class_info = f" (classes: {', '.join(classes)})" if classes else ""
                 
-                if original_images_dir is None or not original_images_dir.exists():
-                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no original images found at {original_images_dir})...")
-                    results[model_name][dataset_name] = None
-                    continue
+                # Check if we should skip this evaluation
+                if skip_existing and results_path and results_path.exists():
+                    if (model_name in existing_results and 
+                        dataset_name in existing_results[model_name] and
+                        existing_results[model_name][dataset_name] is not None):
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (already exists)...")
+                        results[model_name][dataset_name] = existing_results[model_name][dataset_name]
+                        continue
                 
-                print(f"\nEvaluating {model_name} on {dataset_name}{class_info} from existing images...")
+                # Set up image directories
+                original_images_dir = None
+                reconstructed_images_dir = None
+                latent_images_dir = None
+                if results_dir is not None:
+                    original_images_dir = results_dir / dataset_name / "images" / "original"
+                    reconstructed_images_dir = results_dir / model_name / dataset_name / "images" / "reconstructed"
                 
-                try:
-                    metrics = evaluate_from_existing_images(
-                        dataset_name,
-                        config,
-                        original_images_dir=original_images_dir,
-                        reconstructed_images_dir=reconstructed_images_dir,
-                        classes=classes,
-                    )
-                    results[model_name][dataset_name] = metrics.to_dict()
-                    print(f"  {metrics}")
+                # Set up latent directory (independent of results_dir, always use custom path when save_latents is True)
+                if save_latents:
+                    # Use custom directory for latents: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{dataset_name}/
+                    latent_images_dir = Path("/data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents") / dataset_name
+                
+                # Check if we should use existing images
+                if use_existing_images:
+                    if reconstructed_images_dir is None or not reconstructed_images_dir.exists():
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no reconstructed images found at {reconstructed_images_dir})...")
+                        results[model_name][dataset_name] = None
+                        continue
                     
-                    # Save incrementally after each evaluation
-                    if results_dir is not None:
-                        save_results_incremental(
-                            {model_name: {dataset_name: results[model_name][dataset_name]}},
-                            results_path
+                    if original_images_dir is None or not original_images_dir.exists():
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no original images found at {original_images_dir})...")
+                        results[model_name][dataset_name] = None
+                        continue
+                    
+                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info} from existing images...")
+                    
+                    try:
+                        metrics = evaluate_from_existing_images(
+                            dataset_name,
+                            config,
+                            original_images_dir=original_images_dir,
+                            reconstructed_images_dir=reconstructed_images_dir,
+                            classes=classes,
                         )
-                        print(f"  Results saved to {results_path}")
-                except Exception as e:
-                    print(f"  Failed: {e}")
-                    results[model_name][dataset_name] = None
-            else:
-                # Normal evaluation with VAE model
-                print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
-                
-                # Set up image saving directories
-                original_images_dir_save = original_images_dir if save_images else None
-                reconstructed_images_dir_save = reconstructed_images_dir if save_images else None
-                
-                try:
-                    metrics = evaluate_single(
-                        vae, 
-                        dataset_name, 
-                        config, 
-                        classes=classes,
-                        original_images_dir=original_images_dir_save,
-                        reconstructed_images_dir=reconstructed_images_dir_save,
-                    )
-                    results[model_name][dataset_name] = metrics.to_dict()
-                    print(f"  {metrics}")
+                        results[model_name][dataset_name] = metrics.to_dict()
+                        print(f"  {metrics}")
+                        
+                        # Save incrementally after each evaluation
+                        if results_dir is not None:
+                            save_results_incremental(
+                                {model_name: {dataset_name: results[model_name][dataset_name]}},
+                                results_path
+                            )
+                            print(f"  Results saved to {results_path}")
+                    except Exception as e:
+                        print(f"  Failed: {e}")
+                        results[model_name][dataset_name] = None
+                else:
+                    # Normal evaluation with VAE model
+                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
                     
-                    if reconstructed_images_dir_save is not None:
-                        print(f"  Reconstructed images saved to {reconstructed_images_dir_save}")
-                    if original_images_dir_save is not None:
-                        print(f"  Original images saved to {original_images_dir_save} (shared across models)")
+                    # Set up image saving directories
+                    original_images_dir_save = original_images_dir if save_images else None
+                    reconstructed_images_dir_save = reconstructed_images_dir if save_images else None
+                    latent_images_dir_save = latent_images_dir if save_latents else None
                     
-                    # Save incrementally after each evaluation
-                    if results_dir is not None:
-                        save_results_incremental(
-                            {model_name: {dataset_name: results[model_name][dataset_name]}},
-                            results_path
+                    try:
+                        metrics = evaluate_single(
+                            vae, 
+                            dataset_name, 
+                            config, 
+                            classes=classes,
+                            original_images_dir=original_images_dir_save,
+                            reconstructed_images_dir=reconstructed_images_dir_save,
+                            latent_images_dir=latent_images_dir_save,
+                            skip_existing=skip_existing,
                         )
-                        print(f"  Results saved to {results_path}")
-                except Exception as e:
-                    print(f"  Failed: {e}")
-                    results[model_name][dataset_name] = None
-        
-        # Clear GPU memory
-        if vae is not None:
-            del vae
-            torch.cuda.empty_cache()
+                        results[model_name][dataset_name] = metrics.to_dict()
+                        print(f"  {metrics}")
+                        
+                        if reconstructed_images_dir_save is not None:
+                            print(f"  Reconstructed images saved to {reconstructed_images_dir_save}")
+                        if original_images_dir_save is not None:
+                            print(f"  Original images saved to {original_images_dir_save} (shared across models)")
+                        if latent_images_dir_save is not None:
+                            # Count saved files (check for .npz files, not .npy)
+                            num_saved = len(list(latent_images_dir_save.glob("*.npz"))) if latent_images_dir_save.exists() else 0
+                            print(f"  Latent representations saved to {latent_images_dir_save} ({num_saved} files)")
+                        
+                        # Save incrementally after each evaluation
+                        if results_dir is not None:
+                            save_results_incremental(
+                                {model_name: {dataset_name: results[model_name][dataset_name]}},
+                                results_path
+                            )
+                            print(f"  Results saved to {results_path}")
+                    except Exception as e:
+                        print(f"  Failed: {e}")
+                        results[model_name][dataset_name] = None
+        finally:
+            # Clear GPU memory after processing all datasets for this model
+            if vae is not None:
+                del vae
+                if config.device.startswith("cuda"):
+                    torch.cuda.empty_cache()
     
     return results
 
@@ -526,21 +684,26 @@ def main():
         print_results_table(results)
     elif args.model and args.dataset:
         vae = load_vae(args.model, device=config.device)
-        # For single evaluation, use model-specific directories
-        output_path = Path(args.output_dir)
-        original_images_dir = output_path / args.dataset / "images" / "original"
-        reconstructed_images_dir = output_path / args.model / args.dataset / "images" / "reconstructed"
-        metrics = evaluate_single(
-            vae, 
-            args.dataset, 
-            config,
-            original_images_dir=original_images_dir,
-            reconstructed_images_dir=reconstructed_images_dir,
-        )
-        print(f"\n{args.model} on {args.dataset}: {metrics}")
-        
-        results = {args.model: {args.dataset: metrics.to_dict()}}
-        save_results(results, config.output_dir)
+        try:
+            # For single evaluation, use model-specific directories
+            output_path = Path(args.output_dir)
+            original_images_dir = output_path / args.dataset / "images" / "original"
+            reconstructed_images_dir = output_path / args.model / args.dataset / "images" / "reconstructed"
+            metrics = evaluate_single(
+                vae, 
+                args.dataset, 
+                config,
+                original_images_dir=original_images_dir,
+                reconstructed_images_dir=reconstructed_images_dir,
+            )
+            print(f"\n{args.model} on {args.dataset}: {metrics}")
+            
+            results = {args.model: {args.dataset: metrics.to_dict()}}
+            save_results(results, config.output_dir)
+        finally:
+            # Clear GPU memory
+            del vae
+            torch.cuda.empty_cache()
     else:
         parser.print_help()
         print("\nExamples:")

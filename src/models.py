@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Optional
 from diffusers import AutoencoderKL, AutoencoderDC, AutoencoderKLQwenImage, AutoencoderKLFlux2
 
-from config import VAEConfig, VAE_CONFIGS
+try:
+    from .config import VAEConfig, VAE_CONFIGS
+except ImportError:
+    from config import VAEConfig, VAE_CONFIGS
 
 
 # Mapping from class name strings to actual VAE classes
@@ -36,6 +39,7 @@ class VAEWrapper(nn.Module):
         self.config = config
         self.scaling_factor = config.scaling_factor
         self.vae_class_name = vae_class_name
+        self._original_shape = None  # Store original shape for padding/cropping
     
     @torch.no_grad()
     def encode(self, x: torch.Tensor) -> torch.Tensor:
@@ -48,6 +52,14 @@ class VAEWrapper(nn.Module):
         Returns:
             Latent representations, shape (B, C, H//f, W//f)
         """
+        # Pad to make dimensions divisible by 2 (required for pixel_unshuffle)
+        self._original_shape = x.shape
+        h, w = x.shape[-2], x.shape[-1]
+        pad_h = (2 - h % 2) % 2
+        pad_w = (2 - w % 2) % 2
+        if pad_h > 0 or pad_w > 0:
+            x = torch.nn.functional.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+        
         # Qwen-VAE expects 5D input: (B, C, num_frame, H, W)
         # Add frame dimension if needed
         if self.vae_class_name == "AutoencoderKLQwenImage" and x.dim() == 4:
@@ -70,12 +82,13 @@ class VAEWrapper(nn.Module):
         return z * self.scaling_factor
     
     @torch.no_grad()
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
+    def decode(self, z: torch.Tensor, original_shape: Optional[torch.Size] = None) -> torch.Tensor:
         """
         Decode latents to images.
         
         Args:
             z: Latent representations, shape (B, C, H//f, W//f)
+            original_shape: Original input shape (B, C, H, W) for cropping. If None, uses stored shape.
             
         Returns:
             Reconstructed images, shape (B, 3, H, W), range [-1, 1]
@@ -95,6 +108,12 @@ class VAEWrapper(nn.Module):
         # Remove frame dimension if it was added (Qwen-VAE returns 5D images)
         if self.vae_class_name == "AutoencoderKLQwenImage" and result.dim() == 5:
             result = result.squeeze(2)  # (B, C, 1, H, W) -> (B, C, H, W)
+        
+        # Crop to original size if padding was applied
+        target_shape = original_shape or self._original_shape
+        if target_shape is not None and result.shape != target_shape:
+            h, w = target_shape[-2], target_shape[-1]
+            result = result[..., :h, :w]
         
         return result
     

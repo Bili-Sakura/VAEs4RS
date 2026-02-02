@@ -14,7 +14,10 @@ from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from PIL import Image
 
-from config import DatasetConfig, DATASET_CONFIGS
+try:
+    from .config import DatasetConfig, DATASET_CONFIGS
+except ImportError:
+    from config import DatasetConfig, DATASET_CONFIGS
 
 
 def get_transform(image_size: Optional[int] = None) -> transforms.Compose:

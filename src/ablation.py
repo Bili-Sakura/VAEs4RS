@@ -12,10 +12,18 @@ import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 
-from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
-from models import load_vae, VAEWrapper
-from datasets import load_dataset
-from metrics import MetricCalculator, MetricResults
+# Try relative imports first (when used as a package), fall back to absolute (when imported directly)
+try:
+    from .config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from .models import load_vae, VAEWrapper
+    from .datasets import load_dataset
+    from .metrics import MetricCalculator, MetricResults
+except ImportError:
+    # Fall back to absolute imports when src is in path
+    from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
+    from models import load_vae, VAEWrapper
+    from datasets import load_dataset
+    from metrics import MetricCalculator, MetricResults
 
 
 # =============================================================================
@@ -217,30 +225,32 @@ def run_ablation_study(
         
         results[model_name] = {}
         
-        for distortion_name in distortion_names:
-            print(f"\n{model_name} / {distortion_name}:")
-            
-            distorted_metrics, cleaned_metrics = evaluate_denoising(
-                vae, dataset_name, distortion_name, config
-            )
-            
-            results[model_name][distortion_name] = {
-                "distorted": distorted_metrics.to_dict(),
-                "cleaned": cleaned_metrics.to_dict(),
-                "improvement": {
-                    "psnr": cleaned_metrics.psnr - distorted_metrics.psnr,
-                    "ssim": cleaned_metrics.ssim - distorted_metrics.ssim,
-                    "lpips": distorted_metrics.lpips - cleaned_metrics.lpips,  # Lower is better
-                },
-            }
-            
-            print(f"  Distorted: {distorted_metrics}")
-            print(f"  Cleaned:   {cleaned_metrics}")
-            print(f"  PSNR Improvement: {results[model_name][distortion_name]['improvement']['psnr']:.2f} dB")
-        
-        # Clear GPU memory
-        del vae
-        torch.cuda.empty_cache()
+        try:
+            for distortion_name in distortion_names:
+                print(f"\n{model_name} / {distortion_name}:")
+                
+                distorted_metrics, cleaned_metrics = evaluate_denoising(
+                    vae, dataset_name, distortion_name, config
+                )
+                
+                results[model_name][distortion_name] = {
+                    "distorted": distorted_metrics.to_dict(),
+                    "cleaned": cleaned_metrics.to_dict(),
+                    "improvement": {
+                        "psnr": cleaned_metrics.psnr - distorted_metrics.psnr,
+                        "ssim": cleaned_metrics.ssim - distorted_metrics.ssim,
+                        "lpips": distorted_metrics.lpips - cleaned_metrics.lpips,  # Lower is better
+                    },
+                }
+                
+                print(f"  Distorted: {distorted_metrics}")
+                print(f"  Cleaned:   {cleaned_metrics}")
+                print(f"  PSNR Improvement: {results[model_name][distortion_name]['improvement']['psnr']:.2f} dB")
+        finally:
+            # Clear GPU memory after processing all distortions for this model
+            del vae
+            if config.device.startswith("cuda"):
+                torch.cuda.empty_cache()
     
     return results
 

@@ -184,6 +184,7 @@ def save_results_with_metadata(
 - `{model_name}/{dataset_name}.json`: Individual result file for each model-dataset combination
 - `{dataset_name}/images/original/`: Directory containing original input images (shared across all models)
 - `{model_name}/{dataset_name}/images/reconstructed/`: Directory containing VAE reconstructed images (per model)
+- `{model_name}/{dataset_name}/images/latent/`: Directory containing latent representations as .npy files (per model, if --save-latents flag is used)
 
 ### Usage
 To load and analyze these results:
@@ -230,6 +231,7 @@ def run_main_experiment(
     dataset_classes: Optional[Dict[str, List[str]]] = None,
     skip_existing: bool = False,
     save_images: bool = True,
+    save_latents: bool = False,
     model_names: Optional[List[str]] = None,
     use_existing_images: bool = False,
 ) -> dict:
@@ -248,6 +250,7 @@ def run_main_experiment(
         results_dir=results_dir,
         skip_existing=skip_existing,
         save_images=save_images,
+        save_latents=save_latents,
         model_names=model_names,
         use_existing_images=use_existing_images,
     )
@@ -331,6 +334,7 @@ def main():
     parser.add_argument("--classes", type=str, nargs="+", help="Filter classes for datasets. Formats: DATASET (all classes), DATASET: (all classes), DATASET:* (all classes), or DATASET:CLASS1,CLASS2 (specific classes). Examples: AID (all), RESISC45:airport (one class), AID:Airport,Beach RESISC45:* (mixed)")
     parser.add_argument("--skip-existing", action="store_true", help="Skip evaluations that already have results saved")
     parser.add_argument("--no-save-images", action="store_true", help="Don't save generated/reconstructed images")
+    parser.add_argument("--save-latents", action="store_true", help="Save latent representations as .npy files")
     parser.add_argument("--use-existing-images", action="store_true", help="Evaluate metrics from existing reconstructed images instead of regenerating them")
     parser.add_argument("--models", type=str, nargs="+", help="Specify VAE models to evaluate (e.g., --models SD21-VAE SDXL-VAE). If not specified, all models are evaluated.")
     args = parser.parse_args()
@@ -407,15 +411,16 @@ def main():
     
     # Run experiments
     save_images = not args.no_save_images
+    save_latents = args.save_latents
     if args.main_only:
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, model_names=model_names, use_existing_images=args.use_existing_images)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images)
     elif args.ablation_only:
         run_ablation_experiment(config, model_names=model_names)
     elif args.visualize_only:
         generate_visualizations(config, model_names=model_names)
     else:
         # Run all
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, model_names=model_names, use_existing_images=args.use_existing_images)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images)
         run_ablation_experiment(config, model_names=model_names)
         generate_visualizations(config, model_names=model_names)
     
