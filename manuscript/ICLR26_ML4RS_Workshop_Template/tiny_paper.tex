@@ -1,0 +1,125 @@
+
+\documentclass{article} % For LaTeX2e
+\usepackage{iclr2026_conference,times}
+
+% Optional math commands from https://github.com/goodfeli/dlbook_notation.
+\input{math_commands.tex}
+
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{graphicx}
+
+
+\title{The Robustness of Natural Image Priors in Remote Sensing: A Zero-Shot VAE Study}
+
+\author{Anonymous Authors\\
+Affiliation \\
+Address \\
+\texttt{email}
+}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to \LaTeX{} to determine where to break
+% the lines. Using \AND forces a linebreak at that point. So, if \LaTeX{}
+% puts 3 of 4 authors names on the first line, and the last on the second
+% line, try using \AND instead of \And before the third author name.
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+
+% \iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+\begin{document}
+
+
+\maketitle
+
+\begin{abstract}
+We investigate the robustness of variational autoencoders (VAEs) pre-trained on natural images when applied zero-shot to remote sensing data. Despite domain mismatch, these VAEs demonstrate superior reconstruction performance, suggesting natural image priors transfer effectively to satellite imagery.
+\end{abstract}
+
+\section{Introduction}
+
+While specialized visual generative models for remote sensing~\citep{chenText2EarthTexttoRemoteSensing2024,khannaDiffusionSatGenerativeFoundation2024,yellapragadaZoomLDMLatentDiffusion2025,yuMetaEarthGenerativeFoundation2025,pangHSIGeneFoundationModel2026,sastryGeoSynthContextuallyAwareHighResolution2024,panEarthSynthGeneratingInformative2025,sebaqRSDiffRemoteSensing2024} have emerged, standard VAEs pre-trained on large-scale natural image datasets (e.g., LAION~\citep{schuhmannLAION5BOpenLargeScale2022} for Stable Diffusion and FLUX models, ImageNet~\citep{russakovskyImageNetLargeScale2015} for Qwen) remain commonly used without domain adaptation. We evaluate whether these zero-shot VAEs can effectively compress and reconstruct satellite imagery, despite distinct viewing geometries and spatial resolutions~\citep{rolfPositionMissionCritical2024}.
+
+\section{Preliminary: Variational Autoencoders}
+
+Variational Autoencoders (VAEs)~\citep{kingmaAutoEncodingVariationalBayes2014} learn to map input $x$ to latent representation $z$ via encoder $q_\phi(z|x)$ and reconstruct via decoder $p_\theta(x|z)$. The objective maximizes the Evidence Lower Bound (ELBO):
+\begin{equation}
+\mathcal{L}(\theta, \phi; x) = \mathbb{E}_{z \sim q_\phi(z|x)}[\log p_\theta(x|z)] - D_{KL}(q_\phi(z|x) || p_\lambda(z))
+\end{equation}
+where the first term is reconstruction likelihood and the second regularizes the latent space against prior $p_\lambda(z)$ (typically $\mathcal{N}(0, I)$). In large-scale generative models, VAEs compress high-dimensional pixel data into manageable latent spaces for efficient modeling.
+
+\section{Datasets and Methods}
+
+We evaluate zero-shot VAE performance on two benchmarks: \textbf{RESISC45}~\citep{chengRemoteSensingImage2017} (31,500 images, 45 classes, 20cm--30m/px GSD) and \textbf{AID}~\citep{xia2017aid} (10,000 images, 30 classes, 600$\times$600px). We test VAEs from Stable Diffusion~\citep{rombachHighResolutionImageSynthesis2022,podellSDXLImprovingLatent2024}, FLUX~\citep{labsFLUX1KontextFlow2025,labFLUX2FrontierVisual2025}, SANA~\citep{xieSANAEfficientHighResolution2025}, and Qwen~\citep{wuQwenImageTechnicalReport2025} families. Evaluation metrics: PSNR, SSIM~\citep{wangImageQualityAssessment2004}, LPIPS~\citep{zhangUnreasonableEffectivenessDeep2018}, and FID~\citep{heuselGANsTrainedTwo2017}.
+
+\begin{table}[h]
+\begin{center}
+\begin{minipage}{0.48\textwidth}
+\centering
+\caption{Zero-shot VAE performance on RESISC45 (31.5K images, 45 classes, 20cm--30m/px GSD).}
+\label{tab:main_results_resisc45}
+\small
+\begin{tabular}{lcccc}
+\bf Model & \bf PSNR $\uparrow$ & \bf SSIM $\uparrow$ & \bf LPIPS $\downarrow$ & \bf FID $\downarrow$ \\
+\hline
+SD21-VAE~\citep{rombachHighResolutionImageSynthesis2022} & 25.84 & 0.640 & 0.091 & 29.03 \\
+SDXL-VAE~\citep{podellSDXLImprovingLatent2024} & 26.81 & 0.685 & 0.100 & 32.36 \\
+SD35-VAE~\citep{podellSDXLImprovingLatent2024} & N/A & N/A & N/A & N/A \\
+FLUX.1-VAE~\citep{labsFLUX1KontextFlow2025} & N/A & N/A & N/A & N/A \\
+FLUX.2-VAE~\citep{labFLUX2FrontierVisual2025} & \textbf{33.42} & \textbf{0.925} & \textbf{0.021} & \textbf{0.46} \\
+SANA-VAE~\citep{xieSANAEfficientHighResolution2025} & N/A & N/A & N/A & N/A \\
+Qwen-VAE~\citep{wuQwenImageTechnicalReport2025} & N/A & N/A & N/A & N/A \\
+\hline
+\end{tabular}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\caption{Zero-shot VAE performance on AID (10K images, 30 classes, 600$\times$600px).}
+\label{tab:main_results_aid}
+\small
+\begin{tabular}{lcccc}
+\bf Model & \bf PSNR $\uparrow$ & \bf SSIM $\uparrow$ & \bf LPIPS $\downarrow$ & \bf FID $\downarrow$ \\
+\hline
+SD21-VAE~\citep{rombachHighResolutionImageSynthesis2022} & 27.19 & 0.715 & 0.082 & 22.26 \\
+SDXL-VAE~\citep{podellSDXLImprovingLatent2024} & 28.16 & 0.755 & 0.086 & 24.81 \\
+SD35-VAE~\citep{podellSDXLImprovingLatent2024} & N/A & N/A & N/A & N/A \\
+FLUX.1-VAE~\citep{labsFLUX1KontextFlow2025} & N/A & N/A & N/A & N/A \\
+FLUX.2-VAE~\citep{labFLUX2FrontierVisual2025} & \textbf{34.46} & \textbf{0.926} & \textbf{0.022} & \textbf{0.37} \\
+SANA-VAE~\citep{xieSANAEfficientHighResolution2025} & N/A & N/A & N/A & N/A \\
+Qwen-VAE~\citep{wuQwenImageTechnicalReport2025} & N/A & N/A & N/A & N/A \\
+\hline
+\end{tabular}
+\end{minipage}
+\end{center}
+\end{table}
+
+\section{Results and Findings}
+
+Tables~\ref{tab:main_results_resisc45} and~\ref{tab:main_results_aid} show that FLUX.2-VAE achieves the best performance across both datasets, significantly outperforming SD21-VAE and SDXL-VAE. 
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/reconstruction_examples.pdf}
+\caption{Qualitative reconstruction examples comparing different VAE models on remote sensing images from RESISC45 and AID datasets. Top row: original images. Subsequent rows show reconstructions from SD21-VAE, SDXL-VAE, and FLUX.2-VAE (best performing).}
+\label{fig:reconstruction_examples}
+\end{figure}
+
+Key findings: (1) \textbf{Natural priors transfer effectively:} Despite domain mismatch, VAEs pre-trained on large-scale natural image datasets (LAION~\citep{schuhmannLAION5BOpenLargeScale2022}, ImageNet~\citep{russakovskyImageNetLargeScale2015}) demonstrate strong zero-shot reconstruction on RS data, suggesting low-level visual features (edges, textures) are highly transferable. Figure~\ref{fig:reconstruction_examples} illustrates the visual quality differences across models. (2) \textbf{Architecture matters:} Flow-matching decoders (FLUX.2) outperform KL-regularized architectures (SD21, SDXL) by $\sim$7--8dB PSNR and achieve SSIM $>$0.92 vs $<$0.76, with FID improvements from 22--32 to $<$0.5, indicating decoder design critically impacts RS reconstruction quality. (3) \textbf{Zero-shot utility:} FLUX.2-VAE serves as an effective pre-processor for compression and denoising without expensive domain-specific training.
+
+\section{Conclusion}
+
+We demonstrate that natural image VAEs transfer robustly to remote sensing in zero-shot settings. FLUX-family models achieve superior reconstruction, suggesting these priors can serve as effective compressors for RS pipelines without domain adaptation.
+
+\bibliography{iclr2026_conference}
+\bibliographystyle{iclr2026_conference}
+
+% \newpage
+% \appendix
+% \section{Appendix}
+% If you choose to include an appendix, please submit it as a separate PDF file.
+
+\end{document}

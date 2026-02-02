@@ -102,6 +102,10 @@ class MetricCalculator:
         self.psnr_values = []
         self.ssim_values = []
         self.lpips_values = []
+        # Reset metric objects to clear their internal state
+        self.psnr.reset()
+        self.ssim.reset()
+        self.lpips.reset()
         if self.compute_fid and self.fid is not None:
             self.fid.reset()
     
@@ -118,12 +122,18 @@ class MetricCalculator:
         original = original.clamp(-1, 1)
         reconstructed = reconstructed.clamp(-1, 1)
         
-        # Compute per-batch metrics
+        # Compute per-batch metrics and reset immediately to prevent state accumulation
+        # This prevents slowdown as more batches are processed
         self.psnr_values.append(self.psnr(reconstructed, original).item())
-        self.ssim_values.append(self.ssim(reconstructed, original).item())
-        self.lpips_values.append(self.lpips(reconstructed, original).item())
+        self.psnr.reset()  # Reset to prevent state accumulation
         
-        # Update FID
+        self.ssim_values.append(self.ssim(reconstructed, original).item())
+        self.ssim.reset()  # Reset to prevent state accumulation
+        
+        self.lpips_values.append(self.lpips(reconstructed, original).item())
+        self.lpips.reset()  # Reset to prevent state accumulation
+        
+        # Update FID (FID intentionally accumulates state for final computation)
         if self.compute_fid and self.fid is not None:
             # Convert from [-1, 1] to [0, 1] range
             orig_01 = (original + 1) / 2
