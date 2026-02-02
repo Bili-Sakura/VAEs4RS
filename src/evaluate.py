@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Optional
 
 import torch
+import numpy as np
+from PIL import Image
 from tqdm import tqdm
 
 from config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
@@ -102,12 +104,164 @@ def evaluate_single(
     return calculator.compute()
 
 
+def load_image_as_tensor(image_path: Path, device: str = "cuda") -> torch.Tensor:
+    """
+    Load an image from disk and convert to tensor in [-1, 1] range.
+    
+    Args:
+        image_path: Path to image file
+        device: Device to load tensor on
+        
+    Returns:
+        Image tensor in shape (C, H, W) with values in [-1, 1]
+    """
+    img = Image.open(image_path).convert('RGB')
+    img_array = np.array(img).astype(np.float32) / 255.0  # [0, 1]
+    img_tensor = torch.from_numpy(img_array).permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+    img_tensor = (img_tensor - 0.5) / 0.5  # [0, 1] -> [-1, 1]
+    return img_tensor.to(device)
+
+
+def evaluate_from_existing_images(
+    dataset_name: str,
+    config: EvalConfig,
+    original_images_dir: Path,
+    reconstructed_images_dir: Path,
+    classes: Optional[list[str]] = None,
+) -> MetricResults:
+    """
+    Evaluate metrics using existing original and reconstructed images.
+    
+    Args:
+        dataset_name: Name of the dataset
+        config: Evaluation configuration
+        original_images_dir: Directory containing original images
+        reconstructed_images_dir: Directory containing reconstructed images
+        classes: Optional list of class names to filter (None = all classes)
+        
+    Returns:
+        MetricResults
+    """
+    calculator = MetricCalculator(device=config.device, compute_fid=True)
+    
+    # Get all reconstructed image files
+    reconstructed_files = list(reconstructed_images_dir.glob("*.png"))
+    
+    if len(reconstructed_files) == 0:
+        raise ValueError(
+            f"No reconstructed images found in {reconstructed_images_dir}. "
+            f"Make sure the images exist."
+        )
+    
+    # Load and evaluate images
+    matched_count = 0
+    for reconstructed_image_path in tqdm(reconstructed_files, desc="Evaluating from existing images"):
+        save_filename = reconstructed_image_path.name
+        original_image_path = original_images_dir / save_filename
+        
+        # Skip if original image doesn't exist
+        if not original_image_path.exists():
+            continue
+        
+        try:
+            # Load images
+            original_img = load_image_as_tensor(original_image_path, config.device)
+            reconstructed_img = load_image_as_tensor(reconstructed_image_path, config.device)
+            
+            # Ensure same size (pad if necessary)
+            if original_img.shape != reconstructed_img.shape:
+                max_h = max(original_img.shape[1], reconstructed_img.shape[1])
+                max_w = max(original_img.shape[2], reconstructed_img.shape[2])
+                
+                def pad_to_size(img, target_h, target_w):
+                    h, w = img.shape[1], img.shape[2]
+                    pad_h = target_h - h
+                    pad_w = target_w - w
+                    return torch.nn.functional.pad(
+                        img,
+                        (0, pad_w, 0, pad_h),
+                        mode='constant',
+                        value=-1.0
+                    )
+                
+                original_img = pad_to_size(original_img, max_h, max_w)
+                reconstructed_img = pad_to_size(reconstructed_img, max_h, max_w)
+            
+            # Add batch dimension and update metrics
+            original_img = original_img.unsqueeze(0)
+            reconstructed_img = reconstructed_img.unsqueeze(0)
+            
+            calculator.update(original_img, reconstructed_img)
+            matched_count += 1
+        except Exception as e:
+            print(f"Warning: Failed to process {save_filename}: {e}")
+            continue
+    
+    if matched_count == 0:
+        raise ValueError(
+            f"No matching image pairs found between {original_images_dir} and {reconstructed_images_dir}. "
+            f"Make sure the images exist and follow the naming convention."
+        )
+    
+    print(f"Evaluated {matched_count} image pairs")
+    return calculator.compute()
+
+
 def load_results(results_path: Path) -> dict:
     """Load existing results from JSON file."""
     if results_path.exists():
         with open(results_path, 'r') as f:
             return json.load(f)
     return {}
+
+
+def sync_individual_results_to_main(results_path: Path):
+    """
+    Sync individual result JSON files (model_name/dataset_name.json) back into main results.json.
+    This ensures that if individual files exist but main results.json is missing them, they get synced.
+    """
+    if not results_path.exists():
+        return
+    
+    results_dir = results_path.parent
+    existing_results = load_results(results_path)
+    updated = False
+    
+    # Scan for individual result files: model_name/dataset_name.json
+    for model_dir in results_dir.iterdir():
+        if not model_dir.is_dir():
+            continue
+        
+        model_name = model_dir.name
+        if model_name not in existing_results:
+            existing_results[model_name] = {}
+        
+        # Look for dataset JSON files in this model directory
+        for dataset_file in model_dir.glob("*.json"):
+            dataset_name = dataset_file.stem  # filename without extension
+            
+            # Skip if it's not a dataset result file (e.g., metadata.json)
+            if dataset_name in ["metadata", "results"]:
+                continue
+            
+            # Load individual result file
+            try:
+                with open(dataset_file, 'r') as f:
+                    metrics = json.load(f)
+                
+                # Only update if current value is None or missing
+                if (dataset_name not in existing_results[model_name] or 
+                    existing_results[model_name][dataset_name] is None):
+                    existing_results[model_name][dataset_name] = metrics
+                    updated = True
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Warning: Could not load {dataset_file}: {e}")
+    
+    # Save updated results if anything changed
+    if updated:
+        with open(results_path, 'w') as f:
+            json.dump(existing_results, f, indent=2)
+        print(f"Synced individual result files into {results_path}")
 
 
 def save_results_incremental(results: dict, results_path: Path):
@@ -120,7 +274,9 @@ def save_results_incremental(results: dict, results_path: Path):
         if model_name not in existing_results:
             existing_results[model_name] = {}
         for dataset_name, metrics in datasets.items():
-            existing_results[model_name][dataset_name] = metrics
+            # Only update if metrics is not None (preserve existing non-null results)
+            if metrics is not None:
+                existing_results[model_name][dataset_name] = metrics
     
     # Save updated results
     results_path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +302,7 @@ def evaluate_all(
     skip_existing: bool = False,
     save_images: bool = True,
     model_names: Optional[list[str]] = None,
+    use_existing_images: bool = False,
 ) -> dict:
     """
     Evaluate VAE models on all datasets.
@@ -157,6 +314,7 @@ def evaluate_all(
         skip_existing: If True, skip evaluations that already have results saved.
         save_images: If True, save generated/reconstructed images.
         model_names: Optional list of model names to evaluate. If None, evaluates all models.
+        use_existing_images: If True, evaluate metrics from existing reconstructed images instead of regenerating.
         
     Returns:
         Dictionary with all results
@@ -177,22 +335,28 @@ def evaluate_all(
     # Load existing results if incremental saving is enabled
     if results_dir is not None:
         results_path = results_dir / "results.json"
+        # Sync individual result files into main results.json
+        if results_path.exists():
+            sync_individual_results_to_main(results_path)
         if skip_existing and results_path.exists():
             existing_results = load_results(results_path)
             print(f"Loaded existing results from {results_path}")
     
     for model_name in model_names:
-        print(f"\n{'='*60}")
-        print(f"Loading {model_name}...")
-        print('='*60)
-        
-        try:
-            vae = load_vae(model_name, device=config.device)
-        except Exception as e:
-            print(f"Failed to load {model_name}: {e}")
-            continue
-        
         results[model_name] = {}
+        
+        # Only load VAE if not using existing images
+        vae = None
+        if not use_existing_images:
+            print(f"\n{'='*60}")
+            print(f"Loading {model_name}...")
+            print('='*60)
+            
+            try:
+                vae = load_vae(model_name, device=config.device)
+            except Exception as e:
+                print(f"Failed to load {model_name}: {e}")
+                continue
         
         for dataset_name in DATASET_CONFIGS:
             classes = dataset_classes.get(dataset_name) if dataset_classes else None
@@ -207,48 +371,88 @@ def evaluate_all(
                     results[model_name][dataset_name] = existing_results[model_name][dataset_name]
                     continue
             
-            print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
-            
-            # Set up image saving directories
-            # Original images are saved once per dataset (shared across models)
-            # Reconstructed images are saved per model
+            # Set up image directories
             original_images_dir = None
             reconstructed_images_dir = None
-            if save_images and results_dir is not None:
+            if results_dir is not None:
                 original_images_dir = results_dir / dataset_name / "images" / "original"
                 reconstructed_images_dir = results_dir / model_name / dataset_name / "images" / "reconstructed"
             
-            try:
-                metrics = evaluate_single(
-                    vae, 
-                    dataset_name, 
-                    config, 
-                    classes=classes,
-                    original_images_dir=original_images_dir,
-                    reconstructed_images_dir=reconstructed_images_dir,
-                )
-                results[model_name][dataset_name] = metrics.to_dict()
-                print(f"  {metrics}")
+            # Check if we should use existing images
+            if use_existing_images:
+                if reconstructed_images_dir is None or not reconstructed_images_dir.exists():
+                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no reconstructed images found at {reconstructed_images_dir})...")
+                    results[model_name][dataset_name] = None
+                    continue
                 
-                if reconstructed_images_dir is not None:
-                    print(f"  Reconstructed images saved to {reconstructed_images_dir}")
-                if original_images_dir is not None:
-                    print(f"  Original images saved to {original_images_dir} (shared across models)")
+                if original_images_dir is None or not original_images_dir.exists():
+                    print(f"\nSkipping {model_name} on {dataset_name}{class_info} (no original images found at {original_images_dir})...")
+                    results[model_name][dataset_name] = None
+                    continue
                 
-                # Save incrementally after each evaluation
-                if results_dir is not None:
-                    save_results_incremental(
-                        {model_name: {dataset_name: results[model_name][dataset_name]}},
-                        results_path
+                print(f"\nEvaluating {model_name} on {dataset_name}{class_info} from existing images...")
+                
+                try:
+                    metrics = evaluate_from_existing_images(
+                        dataset_name,
+                        config,
+                        original_images_dir=original_images_dir,
+                        reconstructed_images_dir=reconstructed_images_dir,
+                        classes=classes,
                     )
-                    print(f"  Results saved to {results_path}")
-            except Exception as e:
-                print(f"  Failed: {e}")
-                results[model_name][dataset_name] = None
+                    results[model_name][dataset_name] = metrics.to_dict()
+                    print(f"  {metrics}")
+                    
+                    # Save incrementally after each evaluation
+                    if results_dir is not None:
+                        save_results_incremental(
+                            {model_name: {dataset_name: results[model_name][dataset_name]}},
+                            results_path
+                        )
+                        print(f"  Results saved to {results_path}")
+                except Exception as e:
+                    print(f"  Failed: {e}")
+                    results[model_name][dataset_name] = None
+            else:
+                # Normal evaluation with VAE model
+                print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
+                
+                # Set up image saving directories
+                original_images_dir_save = original_images_dir if save_images else None
+                reconstructed_images_dir_save = reconstructed_images_dir if save_images else None
+                
+                try:
+                    metrics = evaluate_single(
+                        vae, 
+                        dataset_name, 
+                        config, 
+                        classes=classes,
+                        original_images_dir=original_images_dir_save,
+                        reconstructed_images_dir=reconstructed_images_dir_save,
+                    )
+                    results[model_name][dataset_name] = metrics.to_dict()
+                    print(f"  {metrics}")
+                    
+                    if reconstructed_images_dir_save is not None:
+                        print(f"  Reconstructed images saved to {reconstructed_images_dir_save}")
+                    if original_images_dir_save is not None:
+                        print(f"  Original images saved to {original_images_dir_save} (shared across models)")
+                    
+                    # Save incrementally after each evaluation
+                    if results_dir is not None:
+                        save_results_incremental(
+                            {model_name: {dataset_name: results[model_name][dataset_name]}},
+                            results_path
+                        )
+                        print(f"  Results saved to {results_path}")
+                except Exception as e:
+                    print(f"  Failed: {e}")
+                    results[model_name][dataset_name] = None
         
         # Clear GPU memory
-        del vae
-        torch.cuda.empty_cache()
+        if vae is not None:
+            del vae
+            torch.cuda.empty_cache()
     
     return results
 

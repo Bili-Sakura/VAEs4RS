@@ -74,10 +74,30 @@ def save_results_with_metadata(
         results_dir = Path(results_dir)
         results_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save results JSON (overwrite with complete results)
+    # Save results JSON (merge with existing results to preserve other results)
     results_path = results_dir / "results.json"
+    # Load existing results if file exists
+    existing_results = {}
+    if results_path.exists():
+        try:
+            with open(results_path, 'r') as f:
+                existing_results = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load existing results from {results_path}: {e}")
+            existing_results = {}
+    
+    # Merge new results into existing results
+    for model_name, datasets in results.items():
+        if model_name not in existing_results:
+            existing_results[model_name] = {}
+        for dataset_name, metrics in datasets.items():
+            # Only update if metrics is not None (preserve existing non-null results)
+            if metrics is not None:
+                existing_results[model_name][dataset_name] = metrics
+    
+    # Save merged results
     with open(results_path, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(existing_results, f, indent=2)
     
     # Create metadata
     metadata = {
@@ -211,6 +231,7 @@ def run_main_experiment(
     skip_existing: bool = False,
     save_images: bool = True,
     model_names: Optional[List[str]] = None,
+    use_existing_images: bool = False,
 ) -> dict:
     """Run the main VAE reconstruction evaluation."""
     print("\n" + "="*80)
@@ -228,6 +249,7 @@ def run_main_experiment(
         skip_existing=skip_existing,
         save_images=save_images,
         model_names=model_names,
+        use_existing_images=use_existing_images,
     )
     
     # Save final metadata (results.json already saved incrementally)
@@ -309,6 +331,7 @@ def main():
     parser.add_argument("--classes", type=str, nargs="+", help="Filter classes for datasets. Formats: DATASET (all classes), DATASET: (all classes), DATASET:* (all classes), or DATASET:CLASS1,CLASS2 (specific classes). Examples: AID (all), RESISC45:airport (one class), AID:Airport,Beach RESISC45:* (mixed)")
     parser.add_argument("--skip-existing", action="store_true", help="Skip evaluations that already have results saved")
     parser.add_argument("--no-save-images", action="store_true", help="Don't save generated/reconstructed images")
+    parser.add_argument("--use-existing-images", action="store_true", help="Evaluate metrics from existing reconstructed images instead of regenerating them")
     parser.add_argument("--models", type=str, nargs="+", help="Specify VAE models to evaluate (e.g., --models SD21-VAE SDXL-VAE). If not specified, all models are evaluated.")
     args = parser.parse_args()
     
@@ -385,14 +408,14 @@ def main():
     # Run experiments
     save_images = not args.no_save_images
     if args.main_only:
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, model_names=model_names)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, model_names=model_names, use_existing_images=args.use_existing_images)
     elif args.ablation_only:
         run_ablation_experiment(config, model_names=model_names)
     elif args.visualize_only:
         generate_visualizations(config, model_names=model_names)
     else:
         # Run all
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, model_names=model_names)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, model_names=model_names, use_existing_images=args.use_existing_images)
         run_ablation_experiment(config, model_names=model_names)
         generate_visualizations(config, model_names=model_names)
     

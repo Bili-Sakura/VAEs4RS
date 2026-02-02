@@ -9,9 +9,18 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 from typing import Optional
-from diffusers import AutoencoderKL
+from diffusers import AutoencoderKL, AutoencoderDC, AutoencoderKLQwenImage, AutoencoderKLFlux2
 
 from config import VAEConfig, VAE_CONFIGS
+
+
+# Mapping from class name strings to actual VAE classes
+VAE_CLASS_MAP = {
+    "AutoencoderKL": AutoencoderKL,
+    "AutoencoderDC": AutoencoderDC,
+    "AutoencoderKLQwenImage": AutoencoderKLQwenImage,
+    "AutoencoderKLFlux2": AutoencoderKLFlux2,
+}
 
 
 class VAEWrapper(nn.Module):
@@ -21,11 +30,12 @@ class VAEWrapper(nn.Module):
     Provides consistent encode/decode interface regardless of underlying model.
     """
     
-    def __init__(self, model: AutoencoderKL, config: VAEConfig):
+    def __init__(self, model, config: VAEConfig, vae_class_name: str = "AutoencoderKL"):
         super().__init__()
         self.model = model
         self.config = config
         self.scaling_factor = config.scaling_factor
+        self.vae_class_name = vae_class_name
     
     @torch.no_grad()
     def encode(self, x: torch.Tensor) -> torch.Tensor:
@@ -38,8 +48,25 @@ class VAEWrapper(nn.Module):
         Returns:
             Latent representations, shape (B, C, H//f, W//f)
         """
-        posterior = self.model.encode(x).latent_dist
-        z = posterior.sample()
+        # Qwen-VAE expects 5D input: (B, C, num_frame, H, W)
+        # Add frame dimension if needed
+        if self.vae_class_name == "AutoencoderKLQwenImage" and x.dim() == 4:
+            x = x.unsqueeze(2)  # (B, C, H, W) -> (B, C, 1, H, W)
+        
+        encoded = self.model.encode(x)
+        
+        # AutoencoderKL returns EncoderOutput with latent_dist, AutoencoderDC returns with latent
+        if hasattr(encoded, 'latent_dist'):
+            z = encoded.latent_dist.sample()
+        elif hasattr(encoded, 'latent'):
+            z = encoded.latent
+        else:
+            z = encoded
+        
+        # Remove frame dimension if it was added (Qwen-VAE returns 5D latents)
+        if self.vae_class_name == "AutoencoderKLQwenImage" and z.dim() == 5:
+            z = z.squeeze(2)  # (B, C, 1, H//f, W//f) -> (B, C, H//f, W//f)
+        
         return z * self.scaling_factor
     
     @torch.no_grad()
@@ -54,7 +81,22 @@ class VAEWrapper(nn.Module):
             Reconstructed images, shape (B, 3, H, W), range [-1, 1]
         """
         z = z / self.scaling_factor
-        return self.model.decode(z).sample
+        
+        # Qwen-VAE expects 5D latents: (B, C, num_frame, H//f, W//f)
+        # Add frame dimension if needed
+        if self.vae_class_name == "AutoencoderKLQwenImage" and z.dim() == 4:
+            z = z.unsqueeze(2)  # (B, C, H//f, W//f) -> (B, C, 1, H//f, W//f)
+        
+        decoded = self.model.decode(z)
+        
+        # Handle different return types - simple check for sample attribute
+        result = decoded.sample if hasattr(decoded, 'sample') else decoded
+        
+        # Remove frame dimension if it was added (Qwen-VAE returns 5D images)
+        if self.vae_class_name == "AutoencoderKLQwenImage" and result.dim() == 5:
+            result = result.squeeze(2)  # (B, C, 1, H, W) -> (B, C, H, W)
+        
+        return result
     
     @torch.no_grad()
     def reconstruct(self, x: torch.Tensor) -> torch.Tensor:
@@ -111,9 +153,19 @@ def load_vae(
     
     # Load config.json from checkpoint folder
     config_json_path = ckpt_path / "config.json"
+    vae_class = AutoencoderKL  # Default fallback
+    vae_class_name = "AutoencoderKL"  # Default class name
     if config_json_path.exists():
         with open(config_json_path, 'r') as f:
             config_dict = json.load(f)
+        
+        # Get the VAE class name from config.json
+        class_name = config_dict.get("_class_name", "AutoencoderKL")
+        vae_class_name = class_name
+        if class_name in VAE_CLASS_MAP:
+            vae_class = VAE_CLASS_MAP[class_name]
+        else:
+            print(f"Warning: Unknown VAE class '{class_name}' for {model_name}, falling back to AutoencoderKL")
         
         # Create VAEConfig from loaded config.json
         # Use values from config.json if available, otherwise fall back to base_config
@@ -159,7 +211,7 @@ def load_vae(
     # Use ignore_mismatched_sizes=True to handle shape mismatches (e.g., SANA-VAE)
     # low_cpu_mem_usage=False is required when using ignore_mismatched_sizes=True
     if config.subfolder:
-        model = AutoencoderKL.from_pretrained(
+        model = vae_class.from_pretrained(
             config.pretrained_path,
             subfolder=config.subfolder,
             torch_dtype=dtype,
@@ -167,7 +219,7 @@ def load_vae(
             low_cpu_mem_usage=False,
         )
     else:
-        model = AutoencoderKL.from_pretrained(
+        model = vae_class.from_pretrained(
             config.pretrained_path,
             torch_dtype=dtype,
             ignore_mismatched_sizes=True,
@@ -177,7 +229,7 @@ def load_vae(
     model = model.to(device)
     model.eval()
     
-    return VAEWrapper(model, config)
+    return VAEWrapper(model, config, vae_class_name)
 
 
 def load_all_vaes(
