@@ -234,6 +234,7 @@ def run_main_experiment(
     save_latents: bool = False,
     model_names: Optional[List[str]] = None,
     use_existing_images: bool = False,
+    dataset_split_files: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Run the main VAE reconstruction evaluation."""
     print("\n" + "="*80)
@@ -253,6 +254,7 @@ def run_main_experiment(
         save_latents=save_latents,
         model_names=model_names,
         use_existing_images=use_existing_images,
+        dataset_split_files=dataset_split_files,
     )
     
     # Save final metadata (results.json already saved incrementally)
@@ -337,6 +339,7 @@ def main():
     parser.add_argument("--save-latents", action="store_true", help="Save latent representations as .npy files")
     parser.add_argument("--use-existing-images", action="store_true", help="Evaluate metrics from existing reconstructed images instead of regenerating them")
     parser.add_argument("--models", type=str, nargs="+", help="Specify VAE models to evaluate (e.g., --models SD21-VAE SDXL-VAE). If not specified, all models are evaluated.")
+    parser.add_argument("--split-file", type=str, help="Path to split file for a dataset. Format: DATASET:PATH (e.g., UCMerced:datasets/torchgeo/ucmerced/uc_merced-test.txt)")
     args = parser.parse_args()
     
     # Parse class filtering arguments
@@ -368,6 +371,17 @@ def main():
         invalid_models = [m for m in model_names if m not in VAE_CONFIGS]
         if invalid_models:
             parser.error(f"Unknown models: {invalid_models}. Available: {list(VAE_CONFIGS.keys())}")
+    
+    # Parse split file arguments
+    dataset_split_files = None
+    if args.split_file:
+        dataset_split_files = {}
+        if ':' not in args.split_file:
+            parser.error(f"Invalid split-file format: {args.split_file}. Expected format: DATASET:PATH")
+        dataset_name, split_path = args.split_file.split(':', 1)
+        if dataset_name not in DATASET_CONFIGS:
+            parser.error(f"Unknown dataset: {dataset_name}. Available: {list(DATASET_CONFIGS.keys())}")
+        dataset_split_files[dataset_name] = split_path.strip()
     
     # Set seed for reproducibility
     set_seed(args.seed)
@@ -408,19 +422,23 @@ def main():
                 print(f"  {dataset_name}: all classes")
             else:
                 print(f"  {dataset_name}: {', '.join(classes)}")
+    if dataset_split_files:
+        print(f"\nSplit Files:")
+        for dataset_name, split_file in dataset_split_files.items():
+            print(f"  {dataset_name}: {split_file}")
     
     # Run experiments
     save_images = not args.no_save_images
     save_latents = args.save_latents
     if args.main_only:
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images, dataset_split_files=dataset_split_files)
     elif args.ablation_only:
         run_ablation_experiment(config, model_names=model_names)
     elif args.visualize_only:
         generate_visualizations(config, model_names=model_names)
     else:
         # Run all
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images, dataset_split_files=dataset_split_files)
         run_ablation_experiment(config, model_names=model_names)
         generate_visualizations(config, model_names=model_names)
     

@@ -25,6 +25,12 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
+try:
+    import rasterio
+    HAS_RASTERIO = True
+except ImportError:
+    HAS_RASTERIO = False
+
 # Try relative imports first (when used as a package), fall back to absolute (when imported directly)
 try:
     from .config import VAE_CONFIGS, DATASET_CONFIGS, EvalConfig
@@ -50,6 +56,7 @@ def evaluate_single(
     reconstructed_images_dir: Optional[Path] = None,
     latent_images_dir: Optional[Path] = None,
     skip_existing: bool = False,
+    split_file: Optional[str] = None,
 ) -> MetricResults:
     """
     Evaluate a single VAE on a single dataset.
@@ -65,6 +72,7 @@ def evaluate_single(
                                   If None, reconstructed images are not saved.
         latent_images_dir: Optional directory to save latent representations as .npy files (per model).
                            If None, latent images are not saved.
+        split_file: Optional path to split file (e.g., test set). File should contain one filename per line.
         
     Returns:
         MetricResults
@@ -75,6 +83,7 @@ def evaluate_single(
         batch_size=config.batch_size,
         num_workers=config.num_workers,
         classes=classes,
+        split_file=split_file,
     )
     
     calculator = MetricCalculator(device=config.device, compute_fid=True)
@@ -211,6 +220,8 @@ def load_image_as_tensor(image_path: Path, device: str = "cuda") -> torch.Tensor
     """
     Load an image from disk and convert to tensor in [-1, 1] range.
     
+    Uses rasterio for .tif/.tiff files, PIL for other formats.
+    
     Args:
         image_path: Path to image file
         device: Device to load tensor on
@@ -218,9 +229,58 @@ def load_image_as_tensor(image_path: Path, device: str = "cuda") -> torch.Tensor
     Returns:
         Image tensor in shape (C, H, W) with values in [-1, 1]
     """
-    img = Image.open(image_path).convert('RGB')
-    img_array = np.array(img).astype(np.float32) / 255.0  # [0, 1]
-    img_tensor = torch.from_numpy(img_array).permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+    img_path_str = str(image_path)
+    
+    # Use rasterio for .tif/.tiff files
+    if img_path_str.lower().endswith(('.tif', '.tiff')):
+        if not HAS_RASTERIO:
+            raise ImportError(
+                "rasterio is required to read .tif files. "
+                "Install it with: pip install rasterio"
+            )
+        
+        # Read with rasterio
+        with rasterio.open(img_path_str) as src:
+            # Read all bands
+            data = src.read()  # Shape: (bands, height, width)
+            
+            # Handle different number of bands
+            if data.shape[0] == 1:
+                # Single band: convert to RGB by duplicating
+                data = np.repeat(data, 3, axis=0)
+            elif data.shape[0] == 2:
+                # Two bands: add a third band (duplicate second)
+                data = np.concatenate([data, data[-1:]], axis=0)
+            elif data.shape[0] > 3:
+                # More than 3 bands: take first 3
+                data = data[:3]
+            
+            # Normalize to 0-1 range
+            # Handle different data types
+            if data.dtype == np.uint16:
+                # Scale 16-bit to 0-1
+                img_array = data.astype(np.float32) / 65535.0
+            elif data.dtype == np.uint8:
+                # Scale 8-bit to 0-1
+                img_array = data.astype(np.float32) / 255.0
+            else:
+                # Normalize other types to 0-1
+                data_min = data.min()
+                data_max = data.max()
+                if data_max > data_min:
+                    img_array = (data.astype(np.float32) - data_min) / (data_max - data_min)
+                else:
+                    img_array = np.zeros_like(data, dtype=np.float32)
+            
+            # Already in (C, H, W) format
+            img_tensor = torch.from_numpy(img_array)
+    else:
+        # Use PIL for other formats
+        img = Image.open(image_path).convert('RGB')
+        img_array = np.array(img).astype(np.float32) / 255.0  # [0, 1]
+        img_tensor = torch.from_numpy(img_array).permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+    
+    # Normalize to [-1, 1]
     img_tensor = (img_tensor - 0.5) / 0.5  # [0, 1] -> [-1, 1]
     return img_tensor.to(device)
 
@@ -231,6 +291,7 @@ def evaluate_from_existing_images(
     original_images_dir: Path,
     reconstructed_images_dir: Path,
     classes: Optional[list[str]] = None,
+    split_file: Optional[str] = None,
 ) -> MetricResults:
     """
     Evaluate metrics using existing original and reconstructed images.
@@ -241,6 +302,7 @@ def evaluate_from_existing_images(
         original_images_dir: Directory containing original images
         reconstructed_images_dir: Directory containing reconstructed images
         classes: Optional list of class names to filter (None = all classes)
+        split_file: Optional path to split file (for API consistency, not used in this function)
         
     Returns:
         MetricResults
@@ -445,6 +507,7 @@ def evaluate_all(
     save_latents: bool = False,
     model_names: Optional[list[str]] = None,
     use_existing_images: bool = False,
+    dataset_split_files: Optional[dict[str, str]] = None,
 ) -> dict:
     """
     Evaluate VAE models on all datasets.
@@ -458,6 +521,7 @@ def evaluate_all(
         save_latents: If True, save latent representations as .npy files.
         model_names: Optional list of model names to evaluate. If None, evaluates all models.
         use_existing_images: If True, evaluate metrics from existing reconstructed images instead of regenerating.
+        dataset_split_files: Optional dict mapping dataset names to split file paths (e.g., {"UCMerced": "datasets/torchgeo/ucmerced/uc_merced-test.txt"})
         
     Returns:
         Dictionary with all results
@@ -504,14 +568,16 @@ def evaluate_all(
         try:
             for dataset_name in DATASET_CONFIGS:
                 classes = dataset_classes.get(dataset_name) if dataset_classes else None
+                split_file = dataset_split_files.get(dataset_name) if dataset_split_files else None
                 class_info = f" (classes: {', '.join(classes)})" if classes else ""
+                split_info = f" (split: {split_file})" if split_file else ""
                 
                 # Check if we should skip this evaluation
                 if skip_existing and results_path and results_path.exists():
                     if (model_name in existing_results and 
                         dataset_name in existing_results[model_name] and
                         existing_results[model_name][dataset_name] is not None):
-                        print(f"\nSkipping {model_name} on {dataset_name}{class_info} (already exists)...")
+                        print(f"\nSkipping {model_name} on {dataset_name}{class_info}{split_info} (already exists)...")
                         results[model_name][dataset_name] = existing_results[model_name][dataset_name]
                         continue
                 
@@ -540,7 +606,7 @@ def evaluate_all(
                         results[model_name][dataset_name] = None
                         continue
                     
-                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info} from existing images...")
+                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info}{split_info} from existing images...")
                     
                     try:
                         metrics = evaluate_from_existing_images(
@@ -549,6 +615,7 @@ def evaluate_all(
                             original_images_dir=original_images_dir,
                             reconstructed_images_dir=reconstructed_images_dir,
                             classes=classes,
+                            split_file=split_file,
                         )
                         results[model_name][dataset_name] = metrics.to_dict()
                         print(f"  {metrics}")
@@ -565,7 +632,7 @@ def evaluate_all(
                         results[model_name][dataset_name] = None
                 else:
                     # Normal evaluation with VAE model
-                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info}...")
+                    print(f"\nEvaluating {model_name} on {dataset_name}{class_info}{split_info}...")
                     
                     # Set up image saving directories
                     original_images_dir_save = original_images_dir if save_images else None
@@ -582,6 +649,7 @@ def evaluate_all(
                             reconstructed_images_dir=reconstructed_images_dir_save,
                             latent_images_dir=latent_images_dir_save,
                             skip_existing=skip_existing,
+                            split_file=split_file,
                         )
                         results[model_name][dataset_name] = metrics.to_dict()
                         print(f"  {metrics}")

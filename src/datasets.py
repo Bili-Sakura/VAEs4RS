@@ -13,6 +13,14 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from PIL import Image
+import numpy as np
+
+try:
+    import rasterio
+    from rasterio.windows import Window
+    HAS_RASTERIO = True
+except ImportError:
+    HAS_RASTERIO = False
 
 try:
     from .config import DatasetConfig, DATASET_CONFIGS
@@ -103,7 +111,8 @@ class RSDataset(Dataset):
     """
     Remote Sensing Dataset wrapper.
     
-    Provides consistent interface for RESISC45 and AID datasets.
+    Provides consistent interface for RESISC45, AID, and UCMerced datasets.
+    Supports loading from split files (e.g., test set).
     """
     
     def __init__(
@@ -112,6 +121,7 @@ class RSDataset(Dataset):
         image_size: Optional[int] = None,
         transform: Optional[transforms.Compose] = None,
         classes: Optional[list[str]] = None,
+        split_file: Optional[str] = None,
     ):
         # Resolve path relative to project root if not absolute
         if not os.path.isabs(root):
@@ -136,6 +146,30 @@ class RSDataset(Dataset):
         self.image_size = image_size
         self.transform = transform or get_transform(image_size)
         self.classes_filter = classes  # List of class names to include (None = all classes)
+        self.split_file = split_file  # Path to split file (e.g., test set)
+        
+        # Load split file if provided
+        split_filenames = None
+        if split_file is not None:
+            # Resolve split file path
+            if not os.path.isabs(split_file):
+                current_file = Path(__file__).resolve()
+                project_root = current_file.parent.parent.parent
+                resolved_split = project_root / split_file
+                if resolved_split.exists():
+                    split_file = str(resolved_split)
+                elif os.path.exists(split_file):
+                    split_file = os.path.abspath(split_file)
+                else:
+                    split_file = str(project_root / split_file)
+            
+            split_file = os.path.abspath(split_file)
+            if not os.path.exists(split_file):
+                raise ValueError(f"Split file does not exist: {split_file}")
+            
+            # Read split file (one filename per line)
+            with open(split_file, 'r') as f:
+                split_filenames = set(line.strip() for line in f if line.strip())
         
         # Find all images
         self.image_paths = []
@@ -173,11 +207,16 @@ class RSDataset(Dataset):
             self.class_names.append(class_name)
             for img_name in os.listdir(class_dir):
                 if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff')):
+                    # If split file is provided, only include images in the split
+                    if split_filenames is not None:
+                        if img_name not in split_filenames:
+                            continue
                     self.image_paths.append(os.path.join(class_dir, img_name))
                     self.labels.append(class_idx)
         
         if len(self.image_paths) == 0:
-            raise ValueError(f"No images found in dataset root: {self.root}")
+            split_info = f" (split file: {split_file})" if split_file else ""
+            raise ValueError(f"No images found in dataset root: {self.root}{split_info}")
     
     def __len__(self) -> int:
         return len(self.image_paths)
@@ -186,7 +225,53 @@ class RSDataset(Dataset):
         img_path = self.image_paths[idx]
         label = self.labels[idx]
         
-        image = Image.open(img_path).convert("RGB")
+        # Use rasterio for .tif/.tiff files, PIL for other formats
+        if img_path.lower().endswith(('.tif', '.tiff')):
+            if not HAS_RASTERIO:
+                raise ImportError(
+                    "rasterio is required to read .tif files. "
+                    "Install it with: pip install rasterio"
+                )
+            
+            # Read with rasterio
+            with rasterio.open(img_path) as src:
+                # Read all bands
+                data = src.read()  # Shape: (bands, height, width)
+                
+                # Handle different number of bands
+                if data.shape[0] == 1:
+                    # Single band: convert to RGB by duplicating
+                    data = np.repeat(data, 3, axis=0)
+                elif data.shape[0] == 2:
+                    # Two bands: add a third band (duplicate second)
+                    data = np.concatenate([data, data[-1:]], axis=0)
+                elif data.shape[0] > 3:
+                    # More than 3 bands: take first 3
+                    data = data[:3]
+                
+                # Normalize to 0-255 range if needed
+                # Handle different data types
+                if data.dtype == np.uint16:
+                    # Scale 16-bit to 8-bit
+                    data = (data / 65535.0 * 255.0).astype(np.uint8)
+                elif data.dtype != np.uint8:
+                    # Normalize other types to 0-255
+                    data_min = data.min()
+                    data_max = data.max()
+                    if data_max > data_min:
+                        data = ((data - data_min) / (data_max - data_min) * 255.0).astype(np.uint8)
+                    else:
+                        data = np.zeros_like(data, dtype=np.uint8)
+                
+                # Transpose to (height, width, channels) for PIL
+                data = data.transpose(1, 2, 0)
+                
+                # Convert to PIL Image
+                image = Image.fromarray(data, mode='RGB')
+        else:
+            # Use PIL for other formats
+            image = Image.open(img_path).convert("RGB")
+        
         if self.transform:
             image = self.transform(image)
         
@@ -199,16 +284,18 @@ def load_dataset(
     batch_size: int = 16,
     num_workers: int = 4,
     classes: Optional[list[str]] = None,
+    split_file: Optional[str] = None,
 ) -> Tuple[RSDataset, DataLoader]:
     """
     Load a remote sensing dataset.
     
     Args:
-        dataset_name: Name of the dataset ("RESISC45" or "AID")
+        dataset_name: Name of the dataset ("RESISC45", "AID", or "UCMerced")
         image_size: Target image size. If None, images are loaded at their original size.
         batch_size: Batch size for DataLoader
         num_workers: Number of workers for DataLoader
         classes: Optional list of class names to filter (None = all classes)
+        split_file: Optional path to split file (e.g., test set). File should contain one filename per line.
         
     Returns:
         Tuple of (dataset, dataloader)
@@ -222,6 +309,7 @@ def load_dataset(
         root=config.root,
         image_size=image_size,
         classes=classes,
+        split_file=split_file,
     )
     
     # Use custom collate function for variable-sized images

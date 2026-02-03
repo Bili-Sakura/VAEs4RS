@@ -103,6 +103,12 @@ DATASET_CONFIGS = {
         image_size=600,
         num_classes=30,
     ),
+    "UCMerced": DatasetConfig(
+        name="UCMerced",
+        root="datasets/torchgeo/ucmerced/UCMerced_LandUse/Images",
+        image_size=256,
+        num_classes=21,
+    ),
 }
 
 
