@@ -12,10 +12,10 @@ mkdir -p logs
 nohup python run_experiments.py \
     --main-only \
     --no-save-images \
-    --skip-existing \
     --save-latents \
-    --batch-size 64 \
+    --batch-size 32 \
     --image-size original \
+    --datasets UCMerced \
     --output-dir datasets/BiliSakura/VAEs4RS \
     --device cuda \
     --seed 42 \

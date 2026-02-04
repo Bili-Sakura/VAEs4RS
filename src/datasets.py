@@ -5,6 +5,7 @@ Supports NWPU-RESISC45 and AID datasets.
 """
 
 import os
+import warnings
 from pathlib import Path
 from typing import Optional, Tuple, List
 
@@ -18,6 +19,11 @@ import numpy as np
 try:
     import rasterio
     from rasterio.windows import Window
+    from rasterio.errors import NotGeoreferencedWarning
+    # Suppress NotGeoreferencedWarning - not needed for image processing
+    # Set filter before any rasterio operations
+    warnings.filterwarnings('ignore', category=NotGeoreferencedWarning, module='rasterio')
+    warnings.filterwarnings('ignore', category=NotGeoreferencedWarning)
     HAS_RASTERIO = True
 except ImportError:
     HAS_RASTERIO = False
@@ -73,7 +79,8 @@ def collate_variable_size(batch: List[Tuple[torch.Tensor, int, str]]) -> Tuple[t
     """
     Custom collate function for variable-sized images.
     
-    Pads images to the maximum size in the batch.
+    Pads images to the maximum size in the batch, ensuring dimensions are divisible by 8
+    (required by most VAE models for proper downsampling).
     
     Args:
         batch: List of (image, label, path) tuples
@@ -83,26 +90,48 @@ def collate_variable_size(batch: List[Tuple[torch.Tensor, int, str]]) -> Tuple[t
     """
     images, labels, paths = zip(*batch)
     
-    # Find maximum height and width
+    # Check if all images have the same size (common case, e.g., UCMerced)
+    first_shape = images[0].shape
+    all_same_size = all(img.shape == first_shape for img in images)
+    
+    if all_same_size:
+        # Fast path: all images are the same size, just stack them
+        return torch.stack(images), torch.tensor(labels), list(paths)
+    
+    # Variable-sized images: find maximum height and width
     max_h = max(img.shape[1] for img in images)
     max_w = max(img.shape[2] for img in images)
     channels = images[0].shape[0]
     
-    # Pad all images to max size
+    # Pad to next multiple of 8 to ensure VAE compatibility
+    # Most VAEs require dimensions divisible by 8 (or at least 2) for proper downsampling
+    # Using 8 ensures compatibility with all common VAE architectures
+    def round_up_to_multiple(n: int, multiple: int = 8) -> int:
+        """Round up to the next multiple."""
+        return ((n + multiple - 1) // multiple) * multiple
+    
+    target_h = round_up_to_multiple(max_h, 8)
+    target_w = round_up_to_multiple(max_w, 8)
+    
+    # Pad all images to target size
     padded_images = []
     for img in images:
         h, w = img.shape[1], img.shape[2]
-        pad_h = max_h - h
-        pad_w = max_w - w
+        pad_h = target_h - h
+        pad_w = target_w - w
         
-        # Pad with -1 (normalized value for black in [-1, 1] range)
-        padded = torch.nn.functional.pad(
-            img,
-            (0, pad_w, 0, pad_h),
-            mode='constant',
-            value=-1.0
-        )
-        padded_images.append(padded)
+        # Only pad if needed
+        if pad_h > 0 or pad_w > 0:
+            # Pad with -1 (normalized value for black in [-1, 1] range)
+            padded = torch.nn.functional.pad(
+                img,
+                (0, pad_w, 0, pad_h),
+                mode='constant',
+                value=-1.0
+            )
+            padded_images.append(padded)
+        else:
+            padded_images.append(img)
     
     return torch.stack(padded_images), torch.tensor(labels), list(paths)
 
@@ -233,41 +262,43 @@ class RSDataset(Dataset):
                     "Install it with: pip install rasterio"
                 )
             
-            # Read with rasterio
-            with rasterio.open(img_path) as src:
-                # Read all bands
-                data = src.read()  # Shape: (bands, height, width)
-                
-                # Handle different number of bands
-                if data.shape[0] == 1:
-                    # Single band: convert to RGB by duplicating
-                    data = np.repeat(data, 3, axis=0)
-                elif data.shape[0] == 2:
-                    # Two bands: add a third band (duplicate second)
-                    data = np.concatenate([data, data[-1:]], axis=0)
-                elif data.shape[0] > 3:
-                    # More than 3 bands: take first 3
-                    data = data[:3]
-                
-                # Normalize to 0-255 range if needed
-                # Handle different data types
-                if data.dtype == np.uint16:
-                    # Scale 16-bit to 8-bit
-                    data = (data / 65535.0 * 255.0).astype(np.uint8)
-                elif data.dtype != np.uint8:
-                    # Normalize other types to 0-255
-                    data_min = data.min()
-                    data_max = data.max()
-                    if data_max > data_min:
-                        data = ((data - data_min) / (data_max - data_min) * 255.0).astype(np.uint8)
-                    else:
-                        data = np.zeros_like(data, dtype=np.uint8)
-                
-                # Transpose to (height, width, channels) for PIL
-                data = data.transpose(1, 2, 0)
-                
-                # Convert to PIL Image
-                image = Image.fromarray(data, mode='RGB')
+            # Read with rasterio (warnings suppressed for non-georeferenced images)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=NotGeoreferencedWarning)
+                with rasterio.open(img_path) as src:
+                    # Read all bands
+                    data = src.read()  # Shape: (bands, height, width)
+                    
+                    # Handle different number of bands
+                    if data.shape[0] == 1:
+                        # Single band: convert to RGB by duplicating
+                        data = np.repeat(data, 3, axis=0)
+                    elif data.shape[0] == 2:
+                        # Two bands: add a third band (duplicate second)
+                        data = np.concatenate([data, data[-1:]], axis=0)
+                    elif data.shape[0] > 3:
+                        # More than 3 bands: take first 3
+                        data = data[:3]
+                    
+                    # Normalize to 0-255 range if needed
+                    # Handle different data types
+                    if data.dtype == np.uint16:
+                        # Scale 16-bit to 8-bit
+                        data = (data / 65535.0 * 255.0).astype(np.uint8)
+                    elif data.dtype != np.uint8:
+                        # Normalize other types to 0-255
+                        data_min = data.min()
+                        data_max = data.max()
+                        if data_max > data_min:
+                            data = ((data - data_min) / (data_max - data_min) * 255.0).astype(np.uint8)
+                        else:
+                            data = np.zeros_like(data, dtype=np.uint8)
+                    
+                    # Transpose to (height, width, channels) for PIL
+                    data = data.transpose(1, 2, 0)
+                    
+                    # Convert to PIL Image
+                    image = Image.fromarray(data, mode='RGB')
         else:
             # Use PIL for other formats
             image = Image.open(img_path).convert("RGB")
@@ -316,8 +347,21 @@ def load_dataset(
     # If image_size is None, images have variable sizes and need padding
     collate_fn = collate_variable_size if image_size is None else None
     
-    # When using variable sizes, batch_size=1 is safer to avoid memory issues
-    effective_batch_size = 1 if image_size is None else batch_size
+    # When using variable sizes, use the requested batch size
+    # The collate function will pad images to the maximum size in each batch
+    # This can be memory-intensive with large batches and very different image sizes
+    if image_size is None:
+        effective_batch_size = batch_size
+        if batch_size > 16:
+            import warnings
+            warnings.warn(
+                f"Using batch_size={batch_size} with variable-sized images. "
+                f"Images will be padded to the maximum size in each batch, which may use significant memory. "
+                f"Consider using a smaller batch size or fixed image_size if you encounter memory issues.",
+                UserWarning
+            )
+    else:
+        effective_batch_size = batch_size
     
     dataloader = DataLoader(
         dataset,

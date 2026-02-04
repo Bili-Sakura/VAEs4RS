@@ -119,8 +119,8 @@ DATASET_CONFIGS = {
 @dataclass
 class EvalConfig:
     """Configuration for evaluation."""
-    batch_size: int = 16
-    num_workers: int = 4
+    batch_size: int = 32
+    num_workers: int = 8
     device: str = "cuda"
     output_dir: str = "outputs"
     seed: int = 42

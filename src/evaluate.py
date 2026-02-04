@@ -20,6 +20,8 @@ src_dir = current_file.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+import warnings
+import gc
 import torch
 import numpy as np
 from PIL import Image
@@ -27,6 +29,11 @@ from tqdm import tqdm
 
 try:
     import rasterio
+    from rasterio.errors import NotGeoreferencedWarning
+    # Suppress NotGeoreferencedWarning - not needed for image processing
+    # Set filter before any rasterio operations
+    warnings.filterwarnings('ignore', category=NotGeoreferencedWarning, module='rasterio')
+    warnings.filterwarnings('ignore', category=NotGeoreferencedWarning)
     HAS_RASTERIO = True
 except ImportError:
     HAS_RASTERIO = False
@@ -133,26 +140,42 @@ def evaluate_single(
         
         # Process batch only if we need to (not all files exist)
         images = images.to(config.device, dtype=model_dtype)
-        reconstructed = vae.reconstruct(images)
-        calculator.update(images.float(), reconstructed.float())
         
-        # Encode latents if needed
+        # Optimize: Avoid double encoding when saving latents
+        # If saving latents, encode once and reuse for reconstruction to save memory
         if latent_images_dir is not None:
-            if indices_to_save is not None:
-                # Some files exist, encode all (we'll filter when saving)
-                with torch.no_grad():
-                    latents = vae.encode(images)
-            else:
-                # Not skipping existing, encode all latents
-                with torch.no_grad():
-                    latents = vae.encode(images)
+            # Encode once
+            latents = vae.encode(images)
+            # Decode from latents (reuse latents instead of encoding again in reconstruct)
+            reconstructed = vae.decode(latents, original_shape=images.shape)
         else:
+            # Not saving latents, use reconstruct (simpler)
+            reconstructed = vae.reconstruct(images)
             latents = None
+        
+        # Update metrics (convert to float32 only for metrics)
+        calculator.update(images.float(), reconstructed.float())
         
         # Save images if requested
         if original_images_dir is not None or reconstructed_images_dir is not None or latent_images_dir is not None:
+            # Move to CPU and convert to float32 only when needed for saving
             images_cpu = images.float().cpu()
             reconstructed_cpu = reconstructed.float().cpu()
+            
+            # Clear GPU tensors immediately after moving to CPU
+            del images, reconstructed
+            if config.device.startswith("cuda"):
+                torch.cuda.empty_cache()
+            
+            # Move latents to CPU once if needed
+            if latents is not None:
+                latents_cpu = latents.cpu()
+                # Clear GPU latents immediately
+                del latents
+                if config.device.startswith("cuda"):
+                    torch.cuda.empty_cache()
+            else:
+                latents_cpu = None
             
             for i in range(images_cpu.shape[0]):
                 # Extract filename from path
@@ -192,16 +215,33 @@ def evaluate_single(
                     # Save latent if we have it and it needs to be saved
                     # If indices_to_save is None (skip_existing=False), save all
                     # If indices_to_save is set (skip_existing=True), only save indices in the list
-                    if latents is not None and (indices_to_save is None or i in indices_to_save):
+                    if latents_cpu is not None and (indices_to_save is None or i in indices_to_save):
                         # Save latent as compressed npz with float16 for maximum compression
                         # Convert to float16 for smaller file size (sufficient precision for latents)
-                        latent_np = latents[i].cpu().float().numpy().astype(np.float16)
+                        latent_np = latents_cpu[i].float().numpy().astype(np.float16)
                         np.savez_compressed(str(latent_path), latent=latent_np)
                         saved_count += 1
-                        # Print progress every 100 files
+                        # Print progress every 500 files
                         total_processed = saved_count + skipped_count
                         if total_processed % 500 == 0:
                             tqdm.write(f"  Progress: Saved {saved_count} latents, Skipped {skipped_count} existing files")
+            
+            # Clear CPU tensors after batch
+            del images_cpu, reconstructed_cpu
+            if latents_cpu is not None:
+                del latents_cpu
+        else:
+            # Not saving images, but still need to clear GPU tensors
+            del images, reconstructed
+            if latents is not None:
+                del latents
+        
+        # Clear GPU memory more frequently for memory-intensive models like SANA-VAE
+        # SANA-VAE has 32 latent channels vs 4-16 for others, needs more frequent clearing
+        is_memory_intensive = vae.config.name == "SANA-VAE"
+        cache_clear_interval = 1 if is_memory_intensive else 3  # Every batch for SANA-VAE, every 3 for others
+        if batch_idx % cache_clear_interval == 0 and config.device.startswith("cuda"):
+            torch.cuda.empty_cache()
     
     # Print final summary
     if skip_existing and latent_images_dir is not None:
@@ -239,41 +279,43 @@ def load_image_as_tensor(image_path: Path, device: str = "cuda") -> torch.Tensor
                 "Install it with: pip install rasterio"
             )
         
-        # Read with rasterio
-        with rasterio.open(img_path_str) as src:
-            # Read all bands
-            data = src.read()  # Shape: (bands, height, width)
-            
-            # Handle different number of bands
-            if data.shape[0] == 1:
-                # Single band: convert to RGB by duplicating
-                data = np.repeat(data, 3, axis=0)
-            elif data.shape[0] == 2:
-                # Two bands: add a third band (duplicate second)
-                data = np.concatenate([data, data[-1:]], axis=0)
-            elif data.shape[0] > 3:
-                # More than 3 bands: take first 3
-                data = data[:3]
-            
-            # Normalize to 0-1 range
-            # Handle different data types
-            if data.dtype == np.uint16:
-                # Scale 16-bit to 0-1
-                img_array = data.astype(np.float32) / 65535.0
-            elif data.dtype == np.uint8:
-                # Scale 8-bit to 0-1
-                img_array = data.astype(np.float32) / 255.0
-            else:
-                # Normalize other types to 0-1
-                data_min = data.min()
-                data_max = data.max()
-                if data_max > data_min:
-                    img_array = (data.astype(np.float32) - data_min) / (data_max - data_min)
+        # Read with rasterio (warnings suppressed for non-georeferenced images)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=NotGeoreferencedWarning)
+            with rasterio.open(img_path_str) as src:
+                # Read all bands
+                data = src.read()  # Shape: (bands, height, width)
+                
+                # Handle different number of bands
+                if data.shape[0] == 1:
+                    # Single band: convert to RGB by duplicating
+                    data = np.repeat(data, 3, axis=0)
+                elif data.shape[0] == 2:
+                    # Two bands: add a third band (duplicate second)
+                    data = np.concatenate([data, data[-1:]], axis=0)
+                elif data.shape[0] > 3:
+                    # More than 3 bands: take first 3
+                    data = data[:3]
+                
+                # Normalize to 0-1 range
+                # Handle different data types
+                if data.dtype == np.uint16:
+                    # Scale 16-bit to 0-1
+                    img_array = data.astype(np.float32) / 65535.0
+                elif data.dtype == np.uint8:
+                    # Scale 8-bit to 0-1
+                    img_array = data.astype(np.float32) / 255.0
                 else:
-                    img_array = np.zeros_like(data, dtype=np.float32)
-            
-            # Already in (C, H, W) format
-            img_tensor = torch.from_numpy(img_array)
+                    # Normalize other types to 0-1
+                    data_min = data.min()
+                    data_max = data.max()
+                    if data_max > data_min:
+                        img_array = (data.astype(np.float32) - data_min) / (data_max - data_min)
+                    else:
+                        img_array = np.zeros_like(data, dtype=np.float32)
+                
+                # Already in (C, H, W) format
+                img_tensor = torch.from_numpy(img_array)
     else:
         # Use PIL for other formats
         img = Image.open(image_path).convert('RGB')
@@ -508,6 +550,7 @@ def evaluate_all(
     model_names: Optional[list[str]] = None,
     use_existing_images: bool = False,
     dataset_split_files: Optional[dict[str, str]] = None,
+    dataset_names: Optional[list[str]] = None,
 ) -> dict:
     """
     Evaluate VAE models on all datasets.
@@ -522,6 +565,7 @@ def evaluate_all(
         model_names: Optional list of model names to evaluate. If None, evaluates all models.
         use_existing_images: If True, evaluate metrics from existing reconstructed images instead of regenerating.
         dataset_split_files: Optional dict mapping dataset names to split file paths (e.g., {"UCMerced": "datasets/torchgeo/ucmerced/uc_merced-test.txt"})
+        dataset_names: Optional list of dataset names to evaluate. If None, evaluates all datasets.
         
     Returns:
         Dictionary with all results
@@ -539,6 +583,15 @@ def evaluate_all(
         if invalid_models:
             raise ValueError(f"Unknown models: {invalid_models}. Available: {list(VAE_CONFIGS.keys())}")
     
+    # Determine which datasets to evaluate
+    if dataset_names is None:
+        dataset_names = list(DATASET_CONFIGS.keys())
+    else:
+        # Validate dataset names
+        invalid_datasets = [d for d in dataset_names if d not in DATASET_CONFIGS]
+        if invalid_datasets:
+            raise ValueError(f"Unknown datasets: {invalid_datasets}. Available: {list(DATASET_CONFIGS.keys())}")
+    
     # Load existing results if incremental saving is enabled
     if results_dir is not None:
         results_path = results_dir / "results.json"
@@ -553,6 +606,12 @@ def evaluate_all(
         results[model_name] = {}
         
         # Only load VAE if not using existing images
+        # Clear memory before loading new model
+        if config.device.startswith("cuda"):
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        gc.collect()
+        
         vae = None
         if not use_existing_images:
             print(f"\n{'='*60}")
@@ -563,10 +622,14 @@ def evaluate_all(
                 vae = load_vae(model_name, device=config.device)
             except Exception as e:
                 print(f"Failed to load {model_name}: {e}")
+                # Clear memory even on failure
+                if config.device.startswith("cuda"):
+                    torch.cuda.empty_cache()
+                gc.collect()
                 continue
         
         try:
-            for dataset_name in DATASET_CONFIGS:
+            for dataset_name in dataset_names:
                 classes = dataset_classes.get(dataset_name) if dataset_classes else None
                 split_file = dataset_split_files.get(dataset_name) if dataset_split_files else None
                 class_info = f" (classes: {', '.join(classes)})" if classes else ""
@@ -591,8 +654,8 @@ def evaluate_all(
                 
                 # Set up latent directory (independent of results_dir, always use custom path when save_latents is True)
                 if save_latents:
-                    # Use custom directory for latents: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{dataset_name}/
-                    latent_images_dir = Path("/data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents") / dataset_name
+                    # Use custom directory for latents: /data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents/{model_name}/{dataset_name}/
+                    latent_images_dir = Path("/data/projects/VAEs4RS/datasets/BiliSakura/RS-Dataset-Latents") / model_name / dataset_name
                 
                 # Check if we should use existing images
                 if use_existing_images:
@@ -677,8 +740,11 @@ def evaluate_all(
             # Clear GPU memory after processing all datasets for this model
             if vae is not None:
                 del vae
+                vae = None
                 if config.device.startswith("cuda"):
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()  # Wait for all operations to complete
+                gc.collect()  # Force garbage collection
     
     return results
 

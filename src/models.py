@@ -52,13 +52,26 @@ class VAEWrapper(nn.Module):
         Returns:
             Latent representations, shape (B, C, H//f, W//f)
         """
-        # Pad to make dimensions divisible by 2 (required for pixel_unshuffle)
-        self._original_shape = x.shape
+        # Store original shape BEFORE any padding
+        original_shape = x.shape
         h, w = x.shape[-2], x.shape[-1]
-        pad_h = (2 - h % 2) % 2
-        pad_w = (2 - w % 2) % 2
+        
+        # Determine padding factor based on model
+        # SANA-VAE uses 32x spatial compression, so needs dimensions divisible by 32
+        # Other models typically need dimensions divisible by 2
+        if self.config.name == "SANA-VAE":
+            pad_factor = 32
+        else:
+            pad_factor = 2
+        
+        # Pad to make dimensions divisible by pad_factor (required for pixel_unshuffle)
+        pad_h = (pad_factor - h % pad_factor) % pad_factor
+        pad_w = (pad_factor - w % pad_factor) % pad_factor
         if pad_h > 0 or pad_w > 0:
             x = torch.nn.functional.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+        
+        # Store the shape after padding for decode
+        self._original_shape = x.shape if (pad_h > 0 or pad_w > 0) else original_shape
         
         # Qwen-VAE expects 5D input: (B, C, num_frame, H, W)
         # Add frame dimension if needed
@@ -128,8 +141,11 @@ class VAEWrapper(nn.Module):
         Returns:
             Reconstructed images, shape (B, 3, H, W), range [-1, 1]
         """
+        # Store original shape before encoding
+        original_shape = x.shape
         z = self.encode(x)
-        return self.decode(z)
+        # Pass original shape explicitly to ensure correct cropping
+        return self.decode(z, original_shape=original_shape)
 
 
 def load_vae(

@@ -235,6 +235,7 @@ def run_main_experiment(
     model_names: Optional[List[str]] = None,
     use_existing_images: bool = False,
     dataset_split_files: Optional[Dict[str, str]] = None,
+    dataset_names: Optional[List[str]] = None,
 ) -> dict:
     """Run the main VAE reconstruction evaluation."""
     print("\n" + "="*80)
@@ -255,6 +256,7 @@ def run_main_experiment(
         model_names=model_names,
         use_existing_images=use_existing_images,
         dataset_split_files=dataset_split_files,
+        dataset_names=dataset_names,
     )
     
     # Save final metadata (results.json already saved incrementally)
@@ -339,6 +341,7 @@ def main():
     parser.add_argument("--save-latents", action="store_true", help="Save latent representations as .npy files")
     parser.add_argument("--use-existing-images", action="store_true", help="Evaluate metrics from existing reconstructed images instead of regenerating them")
     parser.add_argument("--models", type=str, nargs="+", help="Specify VAE models to evaluate (e.g., --models SD21-VAE SDXL-VAE). If not specified, all models are evaluated.")
+    parser.add_argument("--datasets", type=str, nargs="+", help="Specify datasets to evaluate (e.g., --datasets UCMerced RESISC45). If not specified, all datasets are evaluated.")
     parser.add_argument("--split-file", type=str, help="Path to split file for a dataset. Format: DATASET:PATH (e.g., UCMerced:datasets/torchgeo/ucmerced/uc_merced-test.txt)")
     args = parser.parse_args()
     
@@ -371,6 +374,14 @@ def main():
         invalid_models = [m for m in model_names if m not in VAE_CONFIGS]
         if invalid_models:
             parser.error(f"Unknown models: {invalid_models}. Available: {list(VAE_CONFIGS.keys())}")
+    
+    # Parse dataset filtering arguments
+    dataset_names = None
+    if args.datasets:
+        dataset_names = args.datasets
+        invalid_datasets = [d for d in dataset_names if d not in DATASET_CONFIGS]
+        if invalid_datasets:
+            parser.error(f"Unknown datasets: {invalid_datasets}. Available: {list(DATASET_CONFIGS.keys())}")
     
     # Parse split file arguments
     dataset_split_files = None
@@ -414,7 +425,7 @@ def main():
     print(f"  Output dir:  {config.output_dir}")
     print(f"  Seed:        {config.seed}")
     print(f"\nModels: {', '.join(model_names if model_names else VAE_CONFIGS.keys())}")
-    print(f"Datasets: {', '.join(DATASET_CONFIGS.keys())}")
+    print(f"Datasets: {', '.join(dataset_names if dataset_names else DATASET_CONFIGS.keys())}")
     if dataset_classes:
         print(f"\nClass Filtering:")
         for dataset_name, classes in dataset_classes.items():
@@ -431,14 +442,14 @@ def main():
     save_images = not args.no_save_images
     save_latents = args.save_latents
     if args.main_only:
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images, dataset_split_files=dataset_split_files)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images, dataset_split_files=dataset_split_files, dataset_names=dataset_names)
     elif args.ablation_only:
         run_ablation_experiment(config, model_names=model_names)
     elif args.visualize_only:
         generate_visualizations(config, model_names=model_names)
     else:
         # Run all
-        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images, dataset_split_files=dataset_split_files)
+        run_main_experiment(config, dataset_classes=dataset_classes, skip_existing=args.skip_existing, save_images=save_images, save_latents=save_latents, model_names=model_names, use_existing_images=args.use_existing_images, dataset_split_files=dataset_split_files, dataset_names=dataset_names)
         run_ablation_experiment(config, model_names=model_names)
         generate_visualizations(config, model_names=model_names)
     
