@@ -82,6 +82,29 @@ Qwen-VAE & 1143.88 & 8 & 16 & 30.38 & 31.46 & 0.874 & 0.889 & 0.080 & 0.077 & 9.
 \label{tab:main_results}
 \end{table}
 
+\begin{table}[h]
+\centering
+\tiny
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lccc|ccccc@{}}
+\toprule
+\bf Model & \bf GFLOPs & \bf Spatial Comp. Ratio & \bf Latent Ch. & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ & \bf LPIPS$\downarrow$ & \bf FID$\downarrow$ & \bf CMMD$\downarrow$ \\
+\cmidrule(lr){1-4} \cmidrule(lr){5-9}
+\midrule
+SD21-VAE & 894.91 & 8 & 4 & 25.81 & 0.688 & 0.082 & 16.43 & 0.0172 \\
+SDXL-VAE & 894.91 & 8 & 4 & 25.92 & 0.705 & 0.084 & 15.97 & 0.0203 \\
+SD35-VAE & 895.25 & 8 & 16 & 30.06 & 0.858 & 0.030 & 6.85 & 0.0001 \\
+FLUX1-VAE & 895.25 & 8 & 16 & \underline{31.73} & \underline{0.899} & \underline{0.020} & \textbf{5.19} & 0.0010 \\
+FLUX2-VAE & 895.71 & 8 & 32 & \textbf{32.16} & \textbf{0.901} & \textbf{0.019} & \underline{4.23} & \textbf{0.0001} \\
+SANA-VAE & 846.76 & 32 & 32 & 22.33 & 0.564 & 0.112 & 28.64 & 0.0002 \\
+Qwen-VAE & 1143.88 & 8 & 16 & 30.76 & 0.873 & 0.064 & 15.83 & 0.0106 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Zero-shot performance on the UCMerced dataset (2.1K images, 21 classes, 256$\times$256px), evaluated at original image size.}
+\label{tab:ucmerced_results}
+\end{table}
+
 \section{Results}
 
 Overall, VAEs demonstrate mostly good reconstruction performance across the evaluated metrics (Table~\ref{tab:main_results}). We observe that results on RESISC45 are slightly worse than AID, which we attribute to RESISC45 containing a number of low-resolution images that lack sufficient high-frequency features, leading to VAE reconstruction failures. Qualitative examples shown in Figure~\ref{fig:reconstruction_examples} demonstrate visually near-identical reconstructions across all models.

@@ -170,8 +170,8 @@ def evaluate_denoising(
     
     distort_fn = DISTORTION_FUNCTIONS[distortion_name]
     
-    distorted_calc = MetricCalculator(device=config.device, compute_fid=False)
-    cleaned_calc = MetricCalculator(device=config.device, compute_fid=False)
+    distorted_calc = MetricCalculator(device=config.device, compute_fid=False, cmmd_batch_size=min(config.batch_size, 32))
+    cleaned_calc = MetricCalculator(device=config.device, compute_fid=False, cmmd_batch_size=min(config.batch_size, 32))
     
     # Use model's dtype (models use float16/bfloat16)
     model_dtype = next(vae.model.parameters()).dtype

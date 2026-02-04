@@ -98,7 +98,8 @@ def evaluate_single(
         compute_fid=True,
         compute_cmmd=config.compute_cmmd,
         fid_feature_extractor=config.fid_feature_extractor,
-        cmmd_clip_model=config.cmmd_clip_model
+        cmmd_clip_model=config.cmmd_clip_model,
+        cmmd_batch_size=min(config.batch_size, 32)  # Use smaller batch size for CLIP to avoid memory issues
     )
     
     # Create image directories if saving images
@@ -360,7 +361,8 @@ def evaluate_from_existing_images(
         compute_fid=True,
         compute_cmmd=config.compute_cmmd,
         fid_feature_extractor=config.fid_feature_extractor,
-        cmmd_clip_model=config.cmmd_clip_model
+        cmmd_clip_model=config.cmmd_clip_model,
+        cmmd_batch_size=min(config.batch_size, 32)  # Use smaller batch size for CLIP to avoid memory issues
     )
     
     # Get all reconstructed image files
@@ -521,8 +523,15 @@ def sync_individual_results_to_main(results_path: Path):
         print(f"Synced individual result files into {results_path}")
 
 
-def save_results_incremental(results: dict, results_path: Path):
-    """Save results incrementally, updating existing file."""
+def save_results_incremental(results: dict, results_path: Path, update_cmmd_only: bool = False):
+    """
+    Save results incrementally, updating existing file.
+    
+    Args:
+        results: Dictionary of results to save
+        results_path: Path to results JSON file
+        update_cmmd_only: If True, only update CMMD field while preserving other metrics
+    """
     # Load existing results if file exists
     existing_results = load_results(results_path)
     
@@ -533,7 +542,20 @@ def save_results_incremental(results: dict, results_path: Path):
         for dataset_name, metrics in datasets.items():
             # Only update if metrics is not None (preserve existing non-null results)
             if metrics is not None:
-                existing_results[model_name][dataset_name] = metrics
+                if update_cmmd_only and model_name in existing_results and dataset_name in existing_results[model_name]:
+                    # Only update CMMD field, preserve other metrics
+                    existing_metrics = existing_results[model_name][dataset_name]
+                    if existing_metrics is not None:
+                        # Create a copy and update only CMMD
+                        updated_metrics = existing_metrics.copy()
+                        if 'cmmd' in metrics:
+                            updated_metrics['cmmd'] = metrics['cmmd']
+                        existing_results[model_name][dataset_name] = updated_metrics
+                    else:
+                        existing_results[model_name][dataset_name] = metrics
+                else:
+                    # Full update (default behavior)
+                    existing_results[model_name][dataset_name] = metrics
     
     # Save updated results
     results_path.parent.mkdir(parents=True, exist_ok=True)
@@ -548,6 +570,14 @@ def save_results_incremental(results: dict, results_path: Path):
                 model_dir = results_path.parent / model_name
                 model_dir.mkdir(parents=True, exist_ok=True)
                 individual_path = model_dir / f"{dataset_name}.json"
+                
+                # If updating CMMD only, merge with existing individual file
+                if update_cmmd_only and individual_path.exists():
+                    with open(individual_path, 'r') as f:
+                        existing_individual = json.load(f)
+                    existing_individual['cmmd'] = metrics.get('cmmd')
+                    metrics = existing_individual
+                
                 with open(individual_path, 'w') as f:
                     json.dump(metrics, f, indent=2)
 
@@ -563,6 +593,7 @@ def evaluate_all(
     use_existing_images: bool = False,
     dataset_split_files: Optional[dict[str, str]] = None,
     dataset_names: Optional[list[str]] = None,
+    update_cmmd_only: bool = False,
 ) -> dict:
     """
     Evaluate VAE models on all datasets.
@@ -578,6 +609,7 @@ def evaluate_all(
         use_existing_images: If True, evaluate metrics from existing reconstructed images instead of regenerating.
         dataset_split_files: Optional dict mapping dataset names to split file paths (e.g., {"UCMerced": "datasets/torchgeo/ucmerced/uc_merced-test.txt"})
         dataset_names: Optional list of dataset names to evaluate. If None, evaluates all datasets.
+        update_cmmd_only: If True, only update CMMD field in existing results while preserving other metrics.
         
     Returns:
         Dictionary with all results
@@ -699,7 +731,8 @@ def evaluate_all(
                         if results_dir is not None:
                             save_results_incremental(
                                 {model_name: {dataset_name: results[model_name][dataset_name]}},
-                                results_path
+                                results_path,
+                                update_cmmd_only=update_cmmd_only
                             )
                             print(f"  Results saved to {results_path}")
                     except Exception as e:
@@ -742,7 +775,8 @@ def evaluate_all(
                         if results_dir is not None:
                             save_results_incremental(
                                 {model_name: {dataset_name: results[model_name][dataset_name]}},
-                                results_path
+                                results_path,
+                                update_cmmd_only=update_cmmd_only
                             )
                             print(f"  Results saved to {results_path}")
                     except Exception as e:
@@ -781,19 +815,39 @@ def print_results_table(results: dict):
     print("RESULTS SUMMARY")
     print("="*80)
     
+    # Check if CMMD is present in any results to determine header
+    has_cmmd = any(
+        metrics is not None and metrics.get('cmmd') is not None
+        for datasets in results.values()
+        for metrics in datasets.values()
+    )
+    
     # Header
-    print(f"{'Dataset':<12} {'Model':<12} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8} {'FID':>8}")
+    if has_cmmd:
+        print(f"{'Dataset':<12} {'Model':<12} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8} {'FID':>8} {'CMMD':>8}")
+    else:
+        print(f"{'Dataset':<12} {'Model':<12} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8} {'FID':>8}")
     print("-"*80)
     
     for model_name, datasets in results.items():
         for dataset_name, metrics in datasets.items():
             if metrics is None:
                 continue
-            print(
-                f"{dataset_name:<12} {model_name:<12} "
-                f"{metrics['psnr']:>8.2f} {metrics['ssim']:>8.4f} "
-                f"{metrics['lpips']:>8.4f} {metrics['fid']:>8.2f}"
-            )
+            # Handle None values for optional metrics
+            fid_str = f"{metrics.get('fid'):>8.2f}" if metrics.get('fid') is not None else "     N/A"
+            if has_cmmd:
+                cmmd_str = f"{metrics.get('cmmd'):>8.2f}" if metrics.get('cmmd') is not None else "     N/A"
+                print(
+                    f"{dataset_name:<12} {model_name:<12} "
+                    f"{metrics['psnr']:>8.2f} {metrics['ssim']:>8.4f} "
+                    f"{metrics['lpips']:>8.4f} {fid_str:>8} {cmmd_str:>8}"
+                )
+            else:
+                print(
+                    f"{dataset_name:<12} {model_name:<12} "
+                    f"{metrics['psnr']:>8.2f} {metrics['ssim']:>8.4f} "
+                    f"{metrics['lpips']:>8.4f} {fid_str:>8}"
+                )
     print("="*80)
 
 
@@ -806,6 +860,8 @@ def main():
     parser.add_argument("--image-size", type=str, default="original", help="Image size (default: 'original' for original sizes). Specify an integer to resize (e.g., 256).")
     parser.add_argument("--output-dir", type=str, default="outputs", help="Output directory")
     parser.add_argument("--device", type=str, default="cuda", help="Device")
+    parser.add_argument("--compute-cmmd", action="store_true", help="Compute CMMD metric (requires transformers)")
+    parser.add_argument("--cmmd-clip-model", type=str, default=None, help="CLIP model path/name for CMMD (default: uses local RSCLIP model)")
     args = parser.parse_args()
     
     # Handle image_size argument (can be None for original sizes)
@@ -817,11 +873,16 @@ def main():
         except ValueError:
             parser.error(f"Invalid image_size: {args.image_size}. Must be an integer or 'original'/'none'.")
     
+    # Set CMMD clip model (use default from config if not specified)
+    cmmd_clip_model = args.cmmd_clip_model if args.cmmd_clip_model else None
+    
     config = EvalConfig(
         batch_size=args.batch_size,
         image_size=image_size,
         output_dir=args.output_dir,
         device=args.device,
+        compute_cmmd=args.compute_cmmd,
+        cmmd_clip_model=cmmd_clip_model,
     )
     
     if args.all:
