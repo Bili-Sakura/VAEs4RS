@@ -143,10 +143,44 @@ def save_results_with_metadata(
             "latent_channels": model_config.latent_channels,
         }
     
-    # Save metadata
+    # Save metadata (merge with existing instead of overwrite)
     metadata_path = results_dir / "metadata.json"
+    existing_metadata = {}
+    if metadata_path.exists():
+        try:
+            with open(metadata_path, 'r') as f:
+                existing_metadata = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load existing metadata from {metadata_path}: {e}")
+            existing_metadata = {}
+
+    merged_metadata = existing_metadata if isinstance(existing_metadata, dict) else {}
+    merged_metadata["experiment_info"] = metadata["experiment_info"]
+    merged_metadata["configuration"] = metadata["configuration"]
+    merged_metadata["class_filtering"] = metadata["class_filtering"]
+
+    # Merge models evaluated (preserve existing ordering)
+    existing_models = merged_metadata.get("models_evaluated")
+    if not isinstance(existing_models, list):
+        existing_models = []
+    for model_name in metadata["models_evaluated"]:
+        if model_name not in existing_models:
+            existing_models.append(model_name)
+    merged_metadata["models_evaluated"] = existing_models
+
+    # Merge datasets and model configurations
+    merged_metadata.setdefault("datasets_evaluated", {})
+    if not isinstance(merged_metadata["datasets_evaluated"], dict):
+        merged_metadata["datasets_evaluated"] = {}
+    merged_metadata["datasets_evaluated"].update(metadata["datasets_evaluated"])
+
+    merged_metadata.setdefault("model_configurations", {})
+    if not isinstance(merged_metadata["model_configurations"], dict):
+        merged_metadata["model_configurations"] = {}
+    merged_metadata["model_configurations"].update(metadata["model_configurations"])
+
     with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
+        json.dump(merged_metadata, f, indent=2)
     
     # Create README with instructions
     readme_content = f"""# VAE Evaluation Results
