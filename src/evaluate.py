@@ -93,7 +93,11 @@ def evaluate_single(
         split_file=split_file,
     )
     
-    calculator = MetricCalculator(device=config.device, compute_fid=True)
+    calculator = MetricCalculator(
+        device=config.device, 
+        compute_fid=True,
+        fid_feature_extractor=config.fid_feature_extractor
+    )
     
     # Create image directories if saving images
     if original_images_dir is not None:
@@ -349,7 +353,11 @@ def evaluate_from_existing_images(
     Returns:
         MetricResults
     """
-    calculator = MetricCalculator(device=config.device, compute_fid=True)
+    calculator = MetricCalculator(
+        device=config.device, 
+        compute_fid=True,
+        fid_feature_extractor=config.fid_feature_extractor
+    )
     
     # Get all reconstructed image files
     reconstructed_files = list(reconstructed_images_dir.glob("*.png"))

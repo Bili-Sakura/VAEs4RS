@@ -5,7 +5,10 @@ Defines HuggingFace model paths and dataset configurations.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any
+
+# Use Any for the feature extractor type to avoid requiring torch import at module level
+# Users can pass any torch.nn.Module instance
 
 
 # =============================================================================
@@ -125,3 +128,4 @@ class EvalConfig:
     output_dir: str = "outputs"
     seed: int = 42
     image_size: Optional[int] = None  # Resize all images to this size. If None, use original sizes.
+    fid_feature_extractor: Optional[Any] = None  # Optional custom feature extractor (torch.nn.Module) for FID metric

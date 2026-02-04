@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Union
 from torchmetrics.image import (
     PeakSignalNoiseRatio,
     StructuralSimilarityIndexMeasure,
@@ -65,9 +65,22 @@ class MetricCalculator:
     
     Computes PSNR, SSIM, LPIPS, and optionally FID between original
     and reconstructed images.
+    
+    Args:
+        device: Device to run computations on (default: "cuda")
+        compute_fid: Whether to compute FID metric (default: True)
+        fid_feature_extractor: Optional custom feature extractor model for FID.
+                              Should be a torch.nn.Module that takes images and returns
+                              features with shape (N, num_features). If None, uses default
+                              Inception v3 model. The model will be moved to the specified device.
     """
     
-    def __init__(self, device: str = "cuda", compute_fid: bool = True):
+    def __init__(
+        self, 
+        device: str = "cuda", 
+        compute_fid: bool = True,
+        fid_feature_extractor: Optional[nn.Module] = None
+    ):
         self.device = device
         # Only compute FID if requested and available
         self.compute_fid = compute_fid and FID_AVAILABLE
@@ -79,8 +92,21 @@ class MetricCalculator:
         
         if self.compute_fid:
             try:
+                # Prepare feature extractor if provided
+                feature_extractor = None
+                if fid_feature_extractor is not None:
+                    # Move feature extractor to device and set to eval mode
+                    feature_extractor = fid_feature_extractor.to(device).eval()
+                    # Ensure it's wrapped in no_grad context for efficiency
+                    for param in feature_extractor.parameters():
+                        param.requires_grad = False
+                
                 # Use normalize=False since we'll provide uint8 images in [0, 255] range
-                self.fid = FrechetInceptionDistance(normalize=False).to(device)
+                # Pass custom feature extractor if provided
+                self.fid = FrechetInceptionDistance(
+                    normalize=False,
+                    feature=feature_extractor
+                ).to(device)
             except Exception as e:
                 import warnings
                 warnings.warn(

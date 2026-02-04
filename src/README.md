@@ -54,6 +54,47 @@ results = calculator.compute()
 print(results)  # PSNR: 28.5 dB | SSIM: 0.92 | LPIPS: 0.05 | FID: 12.3
 ```
 
+#### Using custom feature extractor for FID
+
+You can use a custom pre-trained model as the feature extractor for FID instead of the default Inception v3:
+
+```python
+import torch
+import torch.nn as nn
+import torchvision.models as models
+from src.metrics import MetricCalculator
+
+# Example: Use ResNet50 as feature extractor
+resnet50 = models.resnet50(pretrained=True)
+# Remove the final classification layer to get features
+feature_extractor = nn.Sequential(*list(resnet50.children())[:-1])
+# Flatten the output
+class Flatten(nn.Module):
+    def forward(self, x):
+        return x.view(x.size(0), -1)
+feature_extractor = nn.Sequential(feature_extractor, Flatten())
+
+# Use custom feature extractor
+calculator = MetricCalculator(
+    device="cuda",
+    compute_fid=True,
+    fid_feature_extractor=feature_extractor
+)
+
+# Or pass it via EvalConfig
+from src.config import EvalConfig
+config = EvalConfig(
+    batch_size=16,
+    device="cuda",
+    fid_feature_extractor=feature_extractor  # Your custom model
+)
+```
+
+**Note:** The feature extractor should be a `torch.nn.Module` that:
+- Takes images as input (shape: `(B, C, H, W)`)
+- Returns features with shape `(B, num_features)` where `num_features` is the feature dimension
+- The model will be automatically moved to the specified device and set to eval mode
+
 ### Load dataset
 
 ```python
