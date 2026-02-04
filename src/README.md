@@ -51,7 +51,42 @@ from src.metrics import MetricCalculator
 calculator = MetricCalculator(device="cuda")
 calculator.update(original_images, reconstructed_images)
 results = calculator.compute()
-print(results)  # PSNR: 28.5 dB | SSIM: 0.92 | LPIPS: 0.05 | FID: 12.3
+print(results)  # PSNR: 28.5 dB | SSIM: 0.92 | LPIPS: 0.05 | FID: 12.3 | CMMD: N/A
+```
+
+#### Enable CMMD metric
+
+CMMD (CLIP Maximum Mean Discrepancy) is an alternative to FID that uses CLIP embeddings:
+
+```python
+from src.metrics import MetricCalculator
+
+# Enable CMMD (requires transformers library)
+calculator = MetricCalculator(
+    device="cuda",
+    compute_fid=True,  # Still compute FID
+    compute_cmmd=True  # Also compute CMMD
+)
+calculator.update(original_images, reconstructed_images)
+results = calculator.compute()
+print(results)  # PSNR: 28.5 dB | SSIM: 0.92 | LPIPS: 0.05 | FID: 12.3 | CMMD: 5.42
+```
+
+Or via config:
+
+```python
+from src.config import EvalConfig
+
+config = EvalConfig(
+    batch_size=16,
+    device="cuda",
+    compute_cmmd=True,  # Enable CMMD
+    cmmd_clip_model="/data/projects/VAEs4RS/models/BiliSakura/Git-RSCLIP-ViT-L-16"  # Optional: specify CLIP model (default uses local RSCLIP model)
+)
+```
+
+**Note:** By default, CMMD uses the local RSCLIP model at `/data/projects/VAEs4RS/models/BiliSakura/Git-RSCLIP-ViT-L-16`. 
+You can also specify a HuggingFace model name like `"openai/clip-vit-large-patch14-336"` if you prefer.
 ```
 
 #### Using custom feature extractor for FID
@@ -190,9 +225,10 @@ Dataset loading for remote sensing datasets.
 ### `metrics.py`
 Evaluation metrics for reconstruction quality.
 
-- `MetricCalculator`: Computes PSNR, SSIM, LPIPS, and FID metrics
+- `MetricCalculator`: Computes PSNR, SSIM, LPIPS, FID, and optionally CMMD metrics
 - `MetricResults`: Dataclass containing metric values
 - Supports incremental updates for large datasets
+- CMMD uses CLIP embeddings and Maximum Mean Discrepancy (requires `transformers` library)
 
 ### `evaluate.py`
 Main evaluation script and utilities.

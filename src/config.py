@@ -129,3 +129,5 @@ class EvalConfig:
     seed: int = 42
     image_size: Optional[int] = None  # Resize all images to this size. If None, use original sizes.
     fid_feature_extractor: Optional[Any] = None  # Optional custom feature extractor (torch.nn.Module) for FID metric
+    compute_cmmd: bool = False  # Whether to compute CMMD metric (requires transformers)
+    cmmd_clip_model: str = "/data/projects/VAEs4RS/models/BiliSakura/Git-RSCLIP-ViT-L-16"  # CLIP model path/name for CMMD (local path or HuggingFace model name)

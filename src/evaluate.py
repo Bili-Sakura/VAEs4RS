@@ -96,7 +96,9 @@ def evaluate_single(
     calculator = MetricCalculator(
         device=config.device, 
         compute_fid=True,
-        fid_feature_extractor=config.fid_feature_extractor
+        compute_cmmd=config.compute_cmmd,
+        fid_feature_extractor=config.fid_feature_extractor,
+        cmmd_clip_model=config.cmmd_clip_model
     )
     
     # Create image directories if saving images
@@ -356,7 +358,9 @@ def evaluate_from_existing_images(
     calculator = MetricCalculator(
         device=config.device, 
         compute_fid=True,
-        fid_feature_extractor=config.fid_feature_extractor
+        compute_cmmd=config.compute_cmmd,
+        fid_feature_extractor=config.fid_feature_extractor,
+        cmmd_clip_model=config.cmmd_clip_model
     )
     
     # Get all reconstructed image files
