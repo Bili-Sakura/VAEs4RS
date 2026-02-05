@@ -1,0 +1,127 @@
+# =============================================================================
+# VAEs4RS Configuration File
+# All-in-one config for VAE evaluation on remote sensing datasets
+# =============================================================================
+
+# Evaluation settings
+eval:
+  batch_size: 64
+  num_workers: 8
+  device: cuda
+  seed: 42
+  image_size: null  # null = original sizes, or specify int (e.g., 256)
+  output_dir: outputs
+  
+  # Options
+  skip_existing: false
+  save_images: false
+  save_latents: false
+  
+  # Metrics
+  compute_cmmd: true
+  cmmd_clip_model: models/BiliSakura/Remote-CLIP-ViT-L-14/transformers
+  cmmd_batch_size: 32
+  mmd_chunk_size: 1000
+
+# VAE model configurations
+vaes:
+  SD21-VAE:
+    pretrained_path: models/BiliSakura/VAEs/SD21-VAE
+    scaling_factor: 0.18215
+    latent_channels: 4
+    spatial_compression: 8
+    
+  SDXL-VAE:
+    pretrained_path: models/BiliSakura/VAEs/SDXL-VAE
+    scaling_factor: 0.13025
+    latent_channels: 4
+    spatial_compression: 8
+    
+  SD35-VAE:
+    pretrained_path: models/BiliSakura/VAEs/SD35-VAE
+    scaling_factor: 1.5305
+    latent_channels: 16
+    spatial_compression: 8
+    
+  FLUX1-VAE:
+    pretrained_path: models/BiliSakura/VAEs/FLUX1-VAE
+    scaling_factor: 0.3611
+    latent_channels: 16
+    spatial_compression: 8
+    
+  FLUX2-VAE:
+    pretrained_path: models/BiliSakura/VAEs/FLUX2-VAE
+    scaling_factor: 0.3611
+    latent_channels: 32
+    spatial_compression: 8
+    
+  SANA-VAE:
+    pretrained_path: models/BiliSakura/VAEs/SANA-VAE
+    scaling_factor: 0.41407
+    latent_channels: 32
+    spatial_compression: 32
+    
+  Qwen-VAE:
+    pretrained_path: models/BiliSakura/VAEs/Qwen-VAE
+    scaling_factor: 0.41407
+    latent_channels: 16
+    spatial_compression: 8
+
+# Dataset configurations
+datasets:
+  RESISC45:
+    root: datasets/blanchon/RESISC45/data
+    image_size: 256
+    num_classes: 45
+    
+  AID:
+    root: datasets/blanchon/AID/data
+    image_size: 600
+    num_classes: 30
+    
+  UCMerced:
+    root: datasets/torchgeo/ucmerced/UCMerced_LandUse/Images
+    image_size: 256
+    num_classes: 21
+
+# Experiment settings (what to run)
+experiment:
+  # Models to evaluate (null = all)
+  models: null
+  # models:
+  #   - SD21-VAE
+  #   - SDXL-VAE
+  
+  # Datasets to evaluate (null = all)
+  datasets: null
+  # datasets:
+  #   - RESISC45
+  #   - UCMerced
+  
+  # Class filtering per dataset (null = all classes)
+  class_filter: null
+  # class_filter:
+  #   RESISC45:
+  #     - airport
+  #     - beach
+  #   AID: null  # all classes
+  
+  # Split files per dataset (for test set evaluation)
+  split_files: null
+  # split_files:
+  #   UCMerced: datasets/torchgeo/ucmerced/uc_merced-test.txt
+
+# Ablation study settings
+ablation:
+  enabled: false
+  distortions:
+    - noise_0.1
+    - noise_0.2
+    - haze_0.3
+    - haze_0.5
+
+# Visualization settings
+visualization:
+  enabled: false
+  num_samples: 5
+  output_dir: outputs/figures
