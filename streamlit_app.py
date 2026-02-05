@@ -1,3 +1,7 @@
+"""
+VAE Baseline Reconstruction Viewer - Streamlit App
+"""
+
 import io
 import math
 import random
@@ -7,15 +11,19 @@ from typing import Dict, List, Optional, Set
 
 import streamlit as st
 from diffusers.utils import make_image_grid
-from PIL import Image
+from PIL import Image, ImageDraw
 
+# Add src to path
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 try:
-    from config import DATASET_CONFIGS, VAE_CONFIGS
+    from src.config import get_config
+    cfg = get_config()
+    DATASET_CONFIGS = cfg.datasets
+    VAE_CONFIGS = cfg.vaes
 except Exception:
     DATASET_CONFIGS = {}
     VAE_CONFIGS = {}
@@ -26,36 +34,22 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 def resolve_path(path_str: str) -> Path:
     path = Path(path_str).expanduser()
-    if path.is_absolute():
+    if path.is_absolute() and path.exists():
         return path
     candidate = (PROJECT_ROOT / path).resolve()
-    if candidate.exists():
-        return candidate
-    if path.exists():
-        return path.resolve()
-    return candidate
+    return candidate if candidate.exists() else path.resolve()
 
 
 def extract_original_stem(saved_filename: str) -> str:
     stem = Path(saved_filename).stem
-    if "_batch" in stem:
-        return stem.rsplit("_batch", 1)[0]
-    return stem
+    return stem.rsplit("_batch", 1)[0] if "_batch" in stem else stem
 
 
-def order_models(models: List[str]) -> List[str]:
-    if not VAE_CONFIGS:
-        return sorted(models)
-    ordered = [name for name in VAE_CONFIGS.keys() if name in models]
-    extras = sorted([name for name in models if name not in ordered])
-    return ordered + extras
-
-
-def order_datasets(datasets: List[str]) -> List[str]:
-    if not DATASET_CONFIGS:
-        return sorted(datasets)
-    ordered = [name for name in DATASET_CONFIGS.keys() if name in datasets]
-    extras = sorted([name for name in datasets if name not in ordered])
+def order_items(items: List[str], config_dict: Dict) -> List[str]:
+    if not config_dict:
+        return sorted(items)
+    ordered = [name for name in config_dict.keys() if name in items]
+    extras = sorted([name for name in items if name not in ordered])
     return ordered + extras
 
 
@@ -64,14 +58,11 @@ def find_datasets(results_dir_str: str) -> Dict[str, str]:
     results_dir = Path(results_dir_str)
     if not results_dir.exists():
         return {}
-    datasets = {}
-    for child in results_dir.iterdir():
-        if not child.is_dir():
-            continue
-        original_dir = child / "images" / "original"
-        if original_dir.exists():
-            datasets[child.name] = str(original_dir)
-    return datasets
+    return {
+        child.name: str(child / "images" / "original")
+        for child in results_dir.iterdir()
+        if child.is_dir() and (child / "images" / "original").exists()
+    }
 
 
 @st.cache_data
@@ -79,325 +70,173 @@ def find_models(results_dir_str: str, dataset_name: str) -> List[str]:
     results_dir = Path(results_dir_str)
     if not results_dir.exists():
         return []
-    models = []
-    for child in results_dir.iterdir():
-        if not child.is_dir():
-            continue
-        recon_dir = child / dataset_name / "images" / "reconstructed"
-        if recon_dir.exists():
-            models.append(child.name)
-    return order_models(models)
+    models = [
+        child.name for child in results_dir.iterdir()
+        if child.is_dir() and (child / dataset_name / "images" / "reconstructed").exists()
+    ]
+    return order_items(models, VAE_CONFIGS)
 
 
 @st.cache_data
 def list_saved_images(images_dir_str: str) -> List[str]:
     images_dir = Path(images_dir_str)
-    if not images_dir.exists():
-        return []
-    return sorted([path.name for path in images_dir.glob("*.png")])
+    return sorted([p.name for p in images_dir.glob("*.png")]) if images_dir.exists() else []
 
 
 @st.cache_data
 def list_classes(dataset_root_str: str) -> List[str]:
     dataset_root = Path(dataset_root_str)
-    if not dataset_root.exists():
-        return []
-    return sorted([path.name for path in dataset_root.iterdir() if path.is_dir()])
+    return sorted([p.name for p in dataset_root.iterdir() if p.is_dir()]) if dataset_root.exists() else []
 
 
 @st.cache_data
 def get_class_stems(dataset_root_str: str, class_name: str) -> Set[str]:
-    dataset_root = Path(dataset_root_str)
-    class_dir = dataset_root / class_name
+    class_dir = Path(dataset_root_str) / class_name
     if not class_dir.exists():
         return set()
-    stems = set()
-    for file_path in class_dir.iterdir():
-        if file_path.is_file() and file_path.suffix.lower() in IMAGE_EXTENSIONS:
-            stems.add(file_path.stem)
-    return stems
+    return {p.stem for p in class_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS}
 
 
 @st.cache_data
 def list_reconstructed_filenames(recon_dir_str: str) -> Set[str]:
     recon_dir = Path(recon_dir_str)
-    if not recon_dir.exists():
-        return set()
-    return {path.name for path in recon_dir.glob("*.png")}
+    return {p.name for p in recon_dir.glob("*.png")} if recon_dir.exists() else set()
 
 
 def load_images(images_dir: Path, filenames: List[str]) -> List[Image.Image]:
-    images: List[Image.Image] = []
+    images = []
     for name in filenames:
-        image_path = images_dir / name
-        if not image_path.exists():
-            continue
-        with Image.open(image_path) as img:
-            images.append(img.convert("RGB"))
+        path = images_dir / name
+        if path.exists():
+            with Image.open(path) as img:
+                images.append(img.convert("RGB"))
     return images
 
 
-def add_ground_truth_border(grid_image: Image.Image, num_cols: int, border_width: int = 3) -> Image.Image:
-    """Add a red vertical border rectangle on the ground truth column (leftmost column)."""
-    from PIL import ImageDraw
+def add_border(grid_image: Image.Image, num_cols: int, border_width: int = 3) -> Image.Image:
+    """Add red border on ground truth column."""
     img_copy = grid_image.copy()
-    width, height = img_copy.size
     draw = ImageDraw.Draw(img_copy)
-    
-    # Calculate the width of each column
-    col_width = width // num_cols
-    
-    # Draw red vertical rectangle on the leftmost column (ground truth)
-    # Rectangle spans from top to bottom
-    draw.rectangle(
-        [(0, 0), (col_width - 1, height - 1)],
-        outline="red",
-        width=border_width
-    )
-    
+    col_width = img_copy.width // num_cols
+    draw.rectangle([(0, 0), (col_width - 1, img_copy.height - 1)], outline="red", width=border_width)
     return img_copy
 
 
-def build_image_grid(images: List[Image.Image], columns: int) -> Optional[Image.Image]:
-    if not images:
-        return None
-    columns = max(1, min(columns, len(images)))
-    rows = math.ceil(len(images) / columns)
-    required_count = rows * columns
-    # Pad images list to match the required grid size
-    padded_images = list(images)
-    if len(padded_images) < required_count:
-        # Pad with copies of the last image
-        last_image = padded_images[-1] if padded_images else None
-        if last_image:
-            padded_images.extend([last_image.copy() for _ in range(required_count - len(padded_images))])
-    return make_image_grid(padded_images, rows=rows, cols=columns)
-
-
-def main() -> None:
+def main():
     st.set_page_config(page_title="VAE Baseline Viewer", layout="wide")
     st.title("VAE Baseline Reconstruction Viewer")
 
     with st.sidebar:
         st.header("Controls")
-        results_dir_input = st.text_input(
-            "Results directory",
-            value="datasets/BiliSakura/VAEs4RS",
-        )
+        results_dir_input = st.text_input("Results directory", value="outputs")
         resolved_results_dir = resolve_path(results_dir_input)
-        st.caption(f"Resolved results path: {resolved_results_dir}")
+        st.caption(f"Path: {resolved_results_dir}")
 
         datasets_map = find_datasets(str(resolved_results_dir))
         if not datasets_map:
-            st.error("No datasets found in results directory.")
+            st.error("No datasets found.")
             st.stop()
 
-        dataset_name = st.selectbox(
-            "Dataset",
-            options=order_datasets(list(datasets_map.keys())),
-        )
+        dataset_name = st.selectbox("Dataset", options=order_items(list(datasets_map.keys()), DATASET_CONFIGS))
 
+        # Dataset root for class filtering
         dataset_root = None
         if dataset_name in DATASET_CONFIGS:
             dataset_root = resolve_path(DATASET_CONFIGS[dataset_name].root)
-        dataset_root_input = st.text_input(
-            "Dataset root (for class filter)",
-            value=str(dataset_root) if dataset_root else "",
-        )
+        dataset_root_input = st.text_input("Dataset root", value=str(dataset_root) if dataset_root else "")
         dataset_root = resolve_path(dataset_root_input) if dataset_root_input else None
 
-        class_names: List[str] = []
-        if dataset_root and dataset_root.exists():
-            class_names = list_classes(str(dataset_root))
-        class_options = ["All"] + class_names
-        class_choice = st.selectbox("Class category", options=class_options)
+        class_names = list_classes(str(dataset_root)) if dataset_root and dataset_root.exists() else []
+        class_choice = st.selectbox("Class", options=["All"] + class_names)
 
         models = find_models(str(resolved_results_dir), dataset_name)
         if not models:
-            st.error("No models found for the selected dataset.")
+            st.error("No models found.")
             st.stop()
-        model_selection = st.multiselect(
-            "Models",
-            options=models,
-            default=models,
-        )
+        model_selection = st.multiselect("Models", options=models, default=models)
 
-        sample_count = st.number_input(
-            "Number of samples",
-            min_value=1,
-            max_value=64,
-            value=8,
-            step=1,
-        )
-        random_button = st.button("Random display", type="primary")
+        sample_count = st.number_input("Samples", min_value=1, max_value=64, value=8)
+        random_button = st.button("Random", type="primary")
 
+    # Get available files
     original_dir = Path(datasets_map[dataset_name])
     available_files = list_saved_images(str(original_dir))
     if not available_files:
-        st.error("No saved original images found for this dataset.")
+        st.error("No images found.")
         st.stop()
 
+    # Filter by class
     if class_choice != "All" and dataset_root and dataset_root.exists():
         class_stems = get_class_stems(str(dataset_root), class_choice)
-        if class_stems:
-            available_files = [
-                name for name in available_files
-                if extract_original_stem(name) in class_stems
-            ]
-        else:
-            available_files = []
+        available_files = [f for f in available_files if extract_original_stem(f) in class_stems]
 
-    if not available_files:
-        st.error("No images matched the selected class category.")
-        st.stop()
-
-    selected_models = model_selection if model_selection else []
-    for model_name in selected_models:
+    # Filter by model availability
+    for model_name in model_selection or []:
         recon_dir = resolved_results_dir / model_name / dataset_name / "images" / "reconstructed"
         recon_files = list_reconstructed_filenames(str(recon_dir))
-        if recon_files:
-            available_files = [name for name in available_files if name in recon_files]
-        else:
-            available_files = []
-        if not available_files:
-            break
+        available_files = [f for f in available_files if f in recon_files]
 
     if not available_files:
-        st.error("No images matched across selected models.")
+        st.error("No matching images.")
         st.stop()
 
-    selection_signature = (
-        str(resolved_results_dir),
-        dataset_name,
-        class_choice,
-        tuple(selected_models),
-        int(sample_count),
-    )
-    if st.session_state.get("selection_signature") != selection_signature:
-        st.session_state["selection_signature"] = selection_signature
-        st.session_state["sampled_filenames"] = []
+    # Session state for sampling
+    sig = (str(resolved_results_dir), dataset_name, class_choice, tuple(model_selection or []), int(sample_count))
+    if st.session_state.get("sig") != sig:
+        st.session_state["sig"] = sig
+        st.session_state["samples"] = []
 
-    if random_button or not st.session_state.get("sampled_filenames"):
-        sample_size = min(int(sample_count), len(available_files))
-        st.session_state["sampled_filenames"] = random.sample(available_files, sample_size)
+    if random_button or not st.session_state.get("samples"):
+        st.session_state["samples"] = random.sample(available_files, min(int(sample_count), len(available_files)))
 
-    sampled_filenames = st.session_state["sampled_filenames"]
+    sampled = st.session_state["samples"]
     
-    # Load all images: ground truth + all model reconstructions
-    original_images = load_images(original_dir, sampled_filenames)
-    model_images_dict = {}
-    for model_name in selected_models:
-        recon_dir = resolved_results_dir / model_name / dataset_name / "images" / "reconstructed"
-        recon_images = load_images(recon_dir, sampled_filenames)
-        model_images_dict[model_name] = recon_images
+    # Load images
+    original_images = load_images(original_dir, sampled)
+    model_images = {
+        m: load_images(resolved_results_dir / m / dataset_name / "images" / "reconstructed", sampled)
+        for m in (model_selection or [])
+    }
     
-    # Build combined grid: rows = samples, columns = [Ground Truth, Model1, Model2, ...]
-    num_samples = len(sampled_filenames)
-    num_models = len(selected_models)
-    num_cols = 1 + num_models  # 1 for ground truth + models
+    # Build grid
+    num_samples = len(sampled)
+    num_cols = 1 + len(model_selection or [])
     
-    if num_samples > 0 and num_cols > 0:
-        # Create a blank white image for padding if needed
-        blank_image = None
-        if original_images:
-            blank_image = Image.new("RGB", original_images[0].size, color="white")
-        
-        # Arrange images row by row: each row is [gt, model1, model2, ...]
-        combined_images = []
+    if num_samples > 0 and original_images:
+        combined = []
         for i in range(num_samples):
-            # Add ground truth image
-            if i < len(original_images):
-                combined_images.append(original_images[i])
-            elif original_images:
-                combined_images.append(original_images[-1].copy())
-            elif blank_image:
-                combined_images.append(blank_image.copy())
-            
-            # Add model images for this sample
-            for model_name in selected_models:
-                model_images = model_images_dict.get(model_name, [])
-                if i < len(model_images):
-                    combined_images.append(model_images[i])
-                elif model_images:
-                    combined_images.append(model_images[-1].copy())
-                elif blank_image:
-                    combined_images.append(blank_image.copy())
+            combined.append(original_images[i] if i < len(original_images) else original_images[-1].copy())
+            for m in (model_selection or []):
+                imgs = model_images.get(m, [])
+                combined.append(imgs[i] if i < len(imgs) else (imgs[-1].copy() if imgs else original_images[-1].copy()))
         
-        # Ensure we have exactly rows * cols images
-        required_count = num_samples * num_cols
-        if len(combined_images) < required_count and combined_images:
-            # Pad with copies of the last image
-            last_image = combined_images[-1]
-            combined_images.extend([last_image.copy() for _ in range(required_count - len(combined_images))])
-        elif len(combined_images) > required_count:
-            # Trim if somehow we have too many
-            combined_images = combined_images[:required_count]
+        grid = make_image_grid(combined, rows=num_samples, cols=num_cols)
+        grid = add_border(grid, num_cols)
+        st.image(grid, use_container_width=True)
         
-        if combined_images:
-            combined_grid = make_image_grid(combined_images, rows=num_samples, cols=num_cols)
-            # Add red border on the ground truth column (leftmost column)
-            combined_grid = add_ground_truth_border(combined_grid, num_cols)
-            st.image(combined_grid, use_container_width=True)
-            
-            # Create caption with column headers
-            headers = ["Ground Truth"] + list(selected_models)
-            st.caption(f"Columns: {' | '.join(headers)} | Rows: {num_samples} samples ({dataset_name} | {class_choice})")
-            
-            # Save buttons
-            col1, col2 = st.columns(2)
-            
-            # Generate filename
-            filename_base = f"{dataset_name}_{class_choice}_{'_'.join(selected_models)}_{num_samples}samples"
-            
-            # PNG download
-            png_buffer = io.BytesIO()
-            combined_grid.save(png_buffer, format="PNG")
-            png_buffer.seek(0)
-            col1.download_button(
-                label="Save as PNG",
-                data=png_buffer,
-                file_name=f"{filename_base}.png",
-                mime="image/png",
-                use_container_width=True
-            )
-            
-            # PDF download
-            try:
-                import img2pdf
-                pdf_buffer = io.BytesIO()
-                # Convert to RGB if needed
-                pdf_image = combined_grid.convert("RGB")
-                # Save image to bytes first
-                img_buffer = io.BytesIO()
-                pdf_image.save(img_buffer, format="PNG")
-                img_buffer.seek(0)
-                # Convert to PDF using img2pdf
-                pdf_bytes = img2pdf.convert(img_buffer)
-                pdf_buffer.write(pdf_bytes)
-                pdf_buffer.seek(0)
-                col2.download_button(
-                    label="Save as PDF",
-                    data=pdf_buffer,
-                    file_name=f"{filename_base}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            except ImportError:
-                # Fallback: use PIL's PDF support (may not work on all systems)
-                pdf_buffer = io.BytesIO()
-                pdf_image = combined_grid.convert("RGB")
-                try:
-                    pdf_image.save(pdf_buffer, format="PDF")
-                    pdf_buffer.seek(0)
-                    col2.download_button(
-                        label="Save as PDF",
-                        data=pdf_buffer,
-                        file_name=f"{filename_base}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-                except Exception:
-                    col2.warning("PDF export requires img2pdf library. Install with: pip install img2pdf")
+        headers = ["Ground Truth"] + (model_selection or [])
+        st.caption(f"Columns: {' | '.join(headers)}")
+        
+        # Download buttons
+        col1, col2 = st.columns(2)
+        filename = f"{dataset_name}_{class_choice}_{num_samples}samples"
+        
+        buf = io.BytesIO()
+        grid.save(buf, format="PNG")
+        buf.seek(0)
+        col1.download_button("Save PNG", data=buf, file_name=f"{filename}.png", mime="image/png", use_container_width=True)
+        
+        try:
+            import img2pdf
+            pdf_buf = io.BytesIO()
+            img_buf = io.BytesIO()
+            grid.convert("RGB").save(img_buf, format="PNG")
+            img_buf.seek(0)
+            pdf_buf.write(img2pdf.convert(img_buf))
+            pdf_buf.seek(0)
+            col2.download_button("Save PDF", data=pdf_buf, file_name=f"{filename}.pdf", mime="application/pdf", use_container_width=True)
+        except ImportError:
+            col2.info("Install img2pdf for PDF export")
 
 
 if __name__ == "__main__":
