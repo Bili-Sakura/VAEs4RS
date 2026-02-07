@@ -171,7 +171,8 @@ def create_optimizer(
     params_list = list(params)
     if any(isinstance(p, dict) for p in params_list):
         raise TypeError(
-            "create_optimizer expects an iterable of parameters, not parameter group dicts."
+            "create_optimizer expects raw parameters; pass an iterable of parameters and let "
+            "the helper build any required parameter groups internally."
         )
     name = optimizer_name.lower()
     if name == "adamw":

@@ -151,7 +151,7 @@ def main():
     grad_accum = _get(cfg, "training", "gradient_accumulation_steps", default=1)
     mixed_precision = _get(cfg, "training", "mixed_precision", default="bf16")
     lr = _get(cfg, "training", "learning_rate", default=1e-4)
-    optimizer = _get(cfg, "training", "optimizer", default="adamw")
+    optimizer_name = _get(cfg, "training", "optimizer", default="adamw")
     weight_decay = _get(cfg, "training", "weight_decay", default=0.01)
     adam_beta1 = _get(cfg, "training", "adam_beta1", default=0.9)
     adam_beta2 = _get(cfg, "training", "adam_beta2", default=0.999)
@@ -244,7 +244,7 @@ def main():
     trainable_params = get_trainable_parameters(vae)
     optimizer_obj = create_optimizer(
         trainable_params,
-        optimizer_name=optimizer,
+        optimizer_name=optimizer_name,
         learning_rate=lr,
         weight_decay=weight_decay,
         beta1=adam_beta1,
