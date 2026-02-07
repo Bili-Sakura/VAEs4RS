@@ -214,7 +214,7 @@ def create_optimizer(
         muon_group = dict(
             params=muon_params,
             use_muon=True,
-            lr=learning_rate,
+            lr=learning_rate,  # Muon API expects "lr" in param groups.
             weight_decay=weight_decay,
         )
         param_groups = [muon_group]
