@@ -195,8 +195,12 @@ def test_create_optimizer_muon(monkeypatch):
         def __init__(self, param_groups):
             self.param_groups = param_groups
 
+    class DummySingleDeviceMuon:
+        def __init__(self, param_groups):
+            self.param_groups = param_groups
+
     module.MuonWithAuxAdam = DummyMuon
-    module.SingleDeviceMuonWithAuxAdam = DummyMuon
+    module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
     monkeypatch.setitem(sys.modules, "muon", module)
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
 
@@ -211,7 +215,7 @@ def test_create_optimizer_muon(monkeypatch):
         beta1=0.9,
         beta2=0.95,
     )
-    assert isinstance(optimizer, DummyMuon)
+    assert isinstance(optimizer, DummySingleDeviceMuon)
     assert len(optimizer.param_groups) == 2
     muon_group = optimizer.param_groups[0]
     aux_group = optimizer.param_groups[1]
@@ -228,14 +232,43 @@ def test_create_optimizer_muon(monkeypatch):
     assert set(aux_group.keys()) == {"params", "use_muon", "lr", "betas", "weight_decay"}
 
 
+def test_create_optimizer_muon_distributed(monkeypatch):
+    module = types.ModuleType("muon")
+
+    class DummyMuon:
+        def __init__(self, param_groups):
+            self.param_groups = param_groups
+
+    class DummySingleDeviceMuon:
+        def __init__(self, param_groups):
+            self.param_groups = param_groups
+
+    module.MuonWithAuxAdam = DummyMuon
+    module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
+    monkeypatch.setitem(sys.modules, "muon", module)
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+
+    params = [torch.nn.Parameter(torch.randn(2, 2))]
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="muon",
+        learning_rate=1e-2,
+        weight_decay=0.0,
+    )
+    assert isinstance(optimizer, DummyMuon)
+
+
 def test_create_optimizer_prodigy(monkeypatch):
     module = types.ModuleType("prodigyopt")
 
     class DummyProdigy:
         def __init__(self, params, lr, weight_decay):
-            self.params = params
-            self.lr = lr
-            self.weight_decay = weight_decay
+            self.param_groups = [{
+                "params": list(params),
+                "lr": lr,
+                "weight_decay": weight_decay,
+            }]
 
     module.Prodigy = DummyProdigy
     monkeypatch.setitem(sys.modules, "prodigyopt", module)
@@ -250,9 +283,9 @@ def test_create_optimizer_prodigy(monkeypatch):
         beta2=0.95,
     )
     assert isinstance(optimizer, DummyProdigy)
-    assert optimizer.params == params
-    assert optimizer.lr == 1.0
-    assert optimizer.weight_decay == 0.01
+    assert optimizer.param_groups[0]["params"] == params
+    assert optimizer.param_groups[0]["lr"] == 1.0
+    assert optimizer.param_groups[0]["weight_decay"] == 0.01
 
 
 # ---- Tests: forward pass -------------------------------------------------

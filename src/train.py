@@ -162,8 +162,8 @@ def log_trainable_summary(vae: AutoencoderKL) -> Tuple[int, int]:
 def create_optimizer(
     params: List[nn.Parameter],
     optimizer_name: str = "adamw",
-    learning_rate: float,
-    weight_decay: float,
+    learning_rate: float = 1e-4,
+    weight_decay: float = 0.01,
     beta1: float = 0.9,
     beta2: float = 0.999,
 ) -> torch.optim.Optimizer:
@@ -193,6 +193,7 @@ def create_optimizer(
                 "Muon optimizer requested but muon is not installed. "
                 "Install with `pip install git+https://github.com/KellerJordan/Muon`."
             ) from exc
+        # Muon is intended for matrix-like weights; biases/norms use AdamW.
         muon_params = [p for p in params if p.ndim >= 2]
         aux_params = [p for p in params if p.ndim < 2]
         if not muon_params:
