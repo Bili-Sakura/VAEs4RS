@@ -234,7 +234,7 @@ def vae_loss(
     """
     # Encode → posterior
     posterior = vae.encode(images).latent_dist
-    z = posterior.mode()  # use mode for stable training
+    z = posterior.sample()
 
     # Decode
     reconstructed = vae.decode(z).sample

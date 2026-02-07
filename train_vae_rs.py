@@ -326,6 +326,7 @@ def main():
             progress.set_postfix(loss=f"{metrics['total_loss']:.4f}")
 
         # -- Epoch-level logging -------------------------------------------
+        # epoch_loss accumulates once per optimizer step (sync_gradients)
         avg_loss = epoch_loss / max(num_update_steps_per_epoch, 1)
         logger.info("Epoch %d – avg loss: %.5f", epoch + 1, avg_loss)
 
