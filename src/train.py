@@ -202,7 +202,10 @@ def create_optimizer(
         muon_params = [p for p in params if p.ndim >= 2]
         aux_params = [p for p in params if p.ndim < 2]
         if not muon_params:
-            raise ValueError("Muon optimizer requires parameters with ndim >= 2.")
+            raise ValueError(
+                "Muon optimizer requires parameters with ndim >= 2; "
+                "none were found in the provided parameter list."
+            )
         muon_group = dict(
             params=muon_params,
             use_muon=True,

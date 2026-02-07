@@ -28,6 +28,16 @@ vae_loss = _train_mod.vae_loss
 create_optimizer = _train_mod.create_optimizer
 
 
+class DummyMuon:
+    def __init__(self, param_groups):
+        self.param_groups = param_groups
+
+
+class DummySingleDeviceMuon:
+    def __init__(self, param_groups):
+        self.param_groups = param_groups
+
+
 # ---- Fixtures ------------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -191,14 +201,6 @@ def test_create_optimizer_adamw(vae):
 def test_create_optimizer_muon(monkeypatch):
     module = types.ModuleType("muon")
 
-    class DummyMuon:
-        def __init__(self, param_groups):
-            self.param_groups = param_groups
-
-    class DummySingleDeviceMuon:
-        def __init__(self, param_groups):
-            self.param_groups = param_groups
-
     module.MuonWithAuxAdam = DummyMuon
     module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
     monkeypatch.setitem(sys.modules, "muon", module)
@@ -236,14 +238,6 @@ def test_create_optimizer_muon(monkeypatch):
 
 def test_create_optimizer_muon_distributed(monkeypatch):
     module = types.ModuleType("muon")
-
-    class DummyMuon:
-        def __init__(self, param_groups):
-            self.param_groups = param_groups
-
-    class DummySingleDeviceMuon:
-        def __init__(self, param_groups):
-            self.param_groups = param_groups
 
     module.MuonWithAuxAdam = DummyMuon
     module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
