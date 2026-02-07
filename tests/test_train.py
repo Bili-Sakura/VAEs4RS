@@ -248,7 +248,6 @@ def test_create_optimizer_muon_distributed(monkeypatch):
     module.MuonWithAuxAdam = DummyMuon
     module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
     monkeypatch.setitem(sys.modules, "muon", module)
-    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
 
     params = [torch.nn.Parameter(torch.randn(2, 2))]

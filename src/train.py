@@ -220,7 +220,7 @@ def create_optimizer(
                     weight_decay=weight_decay,
                 )
             )
-        if torch.distributed.is_available() and torch.distributed.is_initialized():
+        if torch.distributed.is_initialized():
             optimizer_cls = MuonWithAuxAdam
         else:
             optimizer_cls = SingleDeviceMuonWithAuxAdam
