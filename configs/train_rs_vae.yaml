@@ -1,0 +1,56 @@
+# =============================================================================
+# Training Configuration for Single-Channel RS-VAE Fine-Tuning
+# Fine-tune pre-trained SD-VAE for 1-channel remote sensing images (IR, SAR, EO)
+# =============================================================================
+
+# Pre-trained model to fine-tune
+model:
+  pretrained_path: "stabilityai/sd-vae-ft-mse"  # HuggingFace model ID or local path
+  in_channels: 1    # single-channel input (IR, SAR, EO)
+  out_channels: 1   # single-channel output
+
+# Which layers to unfreeze for fine-tuning
+# The rest of the model is frozen to preserve learned representations
+freeze:
+  # Number of encoder down_blocks to unfreeze, counting from the input side
+  trainable_encoder_blocks: 1
+  # Number of decoder up_blocks to unfreeze, counting from the output side
+  trainable_decoder_blocks: 1
+  # Always unfrozen: encoder.conv_in, decoder.conv_out, decoder.conv_norm_out
+
+# Training hyperparameters
+training:
+  output_dir: outputs/train_rs_vae
+  seed: 42
+  num_epochs: 100
+  batch_size: 8
+  gradient_accumulation_steps: 1
+  mixed_precision: bf16   # "no", "fp16", or "bf16"
+
+  # Optimizer
+  learning_rate: 1.0e-4
+  optimizer: adamw
+  weight_decay: 0.01
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  max_grad_norm: 1.0
+
+  # Learning rate schedule
+  lr_scheduler: cosine
+  warmup_steps: 500
+
+  # Loss weights
+  reconstruction_weight: 1.0
+  kl_weight: 1.0e-6
+
+  # Logging and checkpointing
+  log_every_n_steps: 100
+  save_every_n_epochs: 10
+  resume_from_checkpoint: null
+
+# Dataset configuration
+data:
+  train_dir: datasets/rs_single_channel/train
+  val_dir: null   # optional validation directory
+  image_size: 256
+  num_workers: 4

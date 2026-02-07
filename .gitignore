@@ -1,6 +1,7 @@
 models
 datasets
 outputs
+checkpoints
 
 # IDEs and Editors
 .vscode/
@@ -48,3 +49,4 @@ __pycache__/
 *$py.class
 venv/
 .env
+.pytest_cache/
