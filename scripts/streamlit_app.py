@@ -1,5 +1,9 @@
+#!/usr/bin/env python3
 """
 VAE Baseline Reconstruction Viewer - Streamlit App
+
+Usage:
+    streamlit run scripts/streamlit_app.py
 """
 
 import io
@@ -13,14 +17,13 @@ import streamlit as st
 from diffusers.utils import make_image_grid
 from PIL import Image, ImageDraw
 
-# Add src to path
-PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_PATH = PROJECT_ROOT / "src"
-if str(SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(SRC_PATH))
+# Ensure project root is on sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-    from src.config import get_config
+    from src.utils.config import get_config
     cfg = get_config()
     DATASET_CONFIGS = cfg.datasets
     VAE_CONFIGS = cfg.vaes

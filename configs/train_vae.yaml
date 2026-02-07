@@ -1,0 +1,72 @@
+# =============================================================================
+# Training Configuration for VAE Fine-Tuning (Generic)
+# Supports all VAE architectures: AutoencoderKL, AutoencoderDC,
+# AutoencoderKLQwenImage, AutoencoderKLFlux2
+# =============================================================================
+
+# Pre-trained model to fine-tune
+# Use any HuggingFace model ID or local path
+# Examples:
+#   stabilityai/sd-vae-ft-mse          (SD21-VAE, AutoencoderKL)
+#   stabilityai/sdxl-vae               (SDXL-VAE, AutoencoderKL)
+#   stabilityai/stable-diffusion-3.5-large (SD35-VAE, AutoencoderKL, subfolder: vae)
+#   black-forest-labs/FLUX.1-dev        (FLUX1-VAE, AutoencoderKL, subfolder: vae)
+#   Efficient-Large-Model/Sana_1600M_1024px_MultiLing_diffusers (SANA-VAE, AutoencoderDC)
+#   Qwen/Qwen2.5-VL-3B-Instruct       (Qwen-VAE, AutoencoderKLQwenImage)
+model:
+  pretrained_path: "stabilityai/sd-vae-ft-mse"  # HuggingFace model ID or local path
+  subfolder: null    # Optional subfolder (e.g., "vae" for SD3.5 or FLUX)
+  in_channels: 3     # Input channels (3 for RGB, 1 for single-channel RS)
+  out_channels: 3    # Output channels (3 for RGB, 1 for single-channel RS)
+
+# Which layers to unfreeze for fine-tuning
+# For AutoencoderKL-family: supports partial fine-tuning with block-level control
+# For AutoencoderDC: only full fine-tuning is supported (train_all_params is forced)
+freeze:
+  # Set to true to train ALL parameters (full fine-tuning)
+  # Required for AutoencoderDC; optional for AutoencoderKL-family
+  train_all_params: false
+  # Number of encoder down_blocks to unfreeze, counting from the input side
+  # (AutoencoderKL-family only)
+  trainable_encoder_blocks: 1
+  # Number of decoder up_blocks to unfreeze, counting from the output side
+  # (AutoencoderKL-family only)
+  trainable_decoder_blocks: 1
+  # Always unfrozen (AutoencoderKL-family): encoder.conv_in, decoder.conv_out, decoder.conv_norm_out
+
+# Training hyperparameters
+training:
+  output_dir: outputs/train_vae
+  seed: 42
+  num_epochs: 100
+  batch_size: 8
+  gradient_accumulation_steps: 1
+  mixed_precision: bf16   # "no", "fp16", or "bf16"
+
+  # Optimizer (adamw, muon, prodigy)
+  learning_rate: 1.0e-4
+  optimizer: adamw
+  weight_decay: 0.01
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  max_grad_norm: 1.0
+
+  # Learning rate schedule
+  lr_scheduler: cosine
+  warmup_steps: 500
+
+  # Loss weights
+  reconstruction_weight: 1.0
+  kl_weight: 1.0e-6      # ignored for AutoencoderDC (no KL divergence)
+
+  # Logging and checkpointing
+  log_every_n_steps: 100
+  save_every_n_epochs: 10
+  resume_from_checkpoint: null
+
+# Dataset configuration
+data:
+  train_dir: datasets/rs/train
+  val_dir: null   # optional validation directory
+  image_size: 256
+  num_workers: 4

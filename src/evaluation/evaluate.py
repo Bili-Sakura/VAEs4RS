@@ -12,11 +12,11 @@ from tqdm import tqdm
 
 from diffusers.training_utils import free_memory
 
-from .config import get_config, EvalConfig, PROJECT_ROOT
-from .models import load_vae, VAEWrapper
-from .datasets import load_dataset
-from .metrics import MetricCalculator, MetricResults
-from .utils import save_tensor_as_image
+from src.utils.config import get_config, EvalConfig, PROJECT_ROOT
+from src.models.vae_wrapper import load_vae, VAEWrapper
+from src.utils.datasets import load_dataset
+from src.evaluation.metrics import MetricCalculator, MetricResults
+from src.utils.helpers import save_tensor_as_image
 
 
 def evaluate_single(

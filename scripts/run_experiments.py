@@ -5,21 +5,23 @@ VAEs4RS: Zero-Shot VAE Study for Remote Sensing
 Main entry point. All configuration is in config.yaml.
 
 Usage:
-    python run_experiments.py              # Run main evaluation
-    python run_experiments.py --ablation   # Run ablation study
-    python run_experiments.py --visualize  # Generate visualizations
+    python scripts/run_experiments.py              # Run main evaluation
+    python scripts/run_experiments.py --ablation   # Run ablation study
+    python scripts/run_experiments.py --visualize  # Generate visualizations
 """
 
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Ensure project root is on sys.path
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
-from src.config import get_config
-from src.evaluate import evaluate_all, print_results_table
-from src.ablation import run_ablation_study, print_ablation_table
-from src.visualize import visualize_reconstructions
+from src.utils.config import get_config
+from src.evaluation.evaluate import evaluate_all, print_results_table
+from src.evaluation.ablation import run_ablation_study, print_ablation_table
+from src.evaluation.visualize import visualize_reconstructions
 from diffusers.training_utils import set_seed
 
 

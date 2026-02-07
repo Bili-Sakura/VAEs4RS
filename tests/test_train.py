@@ -1,4 +1,4 @@
-"""Tests for single-channel VAE modification and training utilities."""
+"""Tests for VAE modification and training utilities."""
 
 import importlib
 import sys
@@ -11,21 +11,22 @@ import torch.nn as nn
 
 from diffusers import AutoencoderKL
 
-# Import the train module directly (avoid triggering heavy src/__init__.py)
-_src_dir = str(Path(__file__).resolve().parent.parent / "src")
-if _src_dir not in sys.path:
-    sys.path.insert(0, _src_dir)
+# Ensure project root is on sys.path for imports
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
-import train as _train_mod  # noqa: E402
-
-replace_encoder_conv_in = _train_mod.replace_encoder_conv_in
-replace_decoder_conv_out = _train_mod.replace_decoder_conv_out
-prepare_vae_for_training = _train_mod.prepare_vae_for_training
-get_trainable_parameters = _train_mod.get_trainable_parameters
-log_trainable_summary = _train_mod.log_trainable_summary
-SingleChannelRSDataset = _train_mod.SingleChannelRSDataset
-vae_loss = _train_mod.vae_loss
-create_optimizer = _train_mod.create_optimizer
+from src.training.train_utils import (
+    replace_encoder_conv_in,
+    replace_decoder_conv_out,
+    prepare_vae_for_training,
+    get_trainable_parameters,
+    log_trainable_summary,
+    SingleChannelRSDataset,
+    vae_loss,
+    create_optimizer,
+    load_vae_for_training,
+)
 
 
 class DummyOptimizer:
@@ -347,3 +348,45 @@ class TestSingleChannelRSDataset:
 
         ds = SingleChannelRSDataset(str(img_dir), image_size=32)
         assert ds[0].shape == (1, 32, 32)
+
+
+# ---- Tests: multi-architecture support -----------------------------------
+
+class TestMultiArchitectureTraining:
+    """Tests for training all VAE architectures."""
+
+    def test_prepare_same_channels_no_replacement(self, vae):
+        """When in_channels matches model default, no conv replacement occurs."""
+        original_weight = vae.encoder.conv_in.weight.clone()
+        prepare_vae_for_training(vae, in_channels=3, out_channels=3, train_all_params=True)
+        # Weight should be unchanged (no replacement for same channels)
+        assert torch.allclose(vae.encoder.conv_in.weight, original_weight)
+
+    def test_prepare_full_finetune_3ch(self, vae):
+        """Full fine-tuning with 3-channel I/O (no conv replacement)."""
+        prepare_vae_for_training(vae, in_channels=3, out_channels=3, train_all_params=True)
+        assert vae.encoder.conv_in.in_channels == 3
+        assert vae.decoder.conv_out.out_channels == 3
+        for p in vae.parameters():
+            assert p.requires_grad
+
+    def test_vae_loss_3ch(self, vae):
+        """Loss works with 3-channel input (standard RGB)."""
+        prepare_vae_for_training(vae, in_channels=3, out_channels=3, train_all_params=True)
+        vae.train()
+        x = torch.randn(2, 3, 64, 64)
+        loss, metrics = vae_loss(vae, x, reconstruction_weight=1.0, kl_weight=1e-6)
+        assert loss.shape == ()
+        assert loss.requires_grad
+        assert metrics["kl_loss"] > 0  # AutoencoderKL should have KL loss
+
+    def test_partial_freeze_3ch(self, vae):
+        """Partial fine-tuning with 3-channel I/O works without conv replacement."""
+        prepare_vae_for_training(
+            vae, in_channels=3, out_channels=3,
+            trainable_encoder_blocks=1, trainable_decoder_blocks=1,
+            train_all_params=False,
+        )
+        total = sum(p.numel() for p in vae.parameters())
+        trainable = sum(p.numel() for p in vae.parameters() if p.requires_grad)
+        assert 0 < trainable < total
