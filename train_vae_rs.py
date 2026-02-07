@@ -151,7 +151,7 @@ def main():
     grad_accum = _get(cfg, "training", "gradient_accumulation_steps", default=1)
     mixed_precision = _get(cfg, "training", "mixed_precision", default="bf16")
     lr = _get(cfg, "training", "learning_rate", default=1e-4)
-    optimizer_name = _get(cfg, "training", "optimizer", default="adamw")
+    optimizer = _get(cfg, "training", "optimizer", default="adamw")
     weight_decay = _get(cfg, "training", "weight_decay", default=0.01)
     adam_beta1 = _get(cfg, "training", "adam_beta1", default=0.9)
     adam_beta2 = _get(cfg, "training", "adam_beta2", default=0.999)
@@ -242,9 +242,9 @@ def main():
 
     # ---- Optimizer & Scheduler -------------------------------------------
     trainable_params = get_trainable_parameters(vae)
-    optimizer = create_optimizer(
+    optimizer_obj = create_optimizer(
         trainable_params,
-        optimizer_name=optimizer_name,
+        optimizer_name=optimizer,
         learning_rate=lr,
         weight_decay=weight_decay,
         beta1=adam_beta1,
@@ -258,14 +258,14 @@ def main():
 
     lr_scheduler = get_scheduler(
         lr_scheduler_type,
-        optimizer=optimizer,
+        optimizer=optimizer_obj,
         num_warmup_steps=warmup_steps * grad_accum,
         num_training_steps=max_train_steps * grad_accum,
     )
 
     # ---- Prepare with Accelerator ----------------------------------------
-    vae, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        vae, optimizer, train_dataloader, lr_scheduler,
+    vae, optimizer_obj, train_dataloader, lr_scheduler = accelerator.prepare(
+        vae, optimizer_obj, train_dataloader, lr_scheduler,
     )
     if val_dataloader is not None:
         val_dataloader = accelerator.prepare(val_dataloader)
@@ -317,9 +317,9 @@ def main():
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(trainable_params, max_grad_norm)
 
-                optimizer.step()
+                optimizer_obj.step()
                 lr_scheduler.step()
-                optimizer.zero_grad()
+                optimizer_obj.zero_grad()
 
             if accelerator.sync_gradients:
                 global_step += 1
