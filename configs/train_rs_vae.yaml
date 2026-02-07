@@ -12,6 +12,8 @@ model:
 # Which layers to unfreeze for fine-tuning
 # The rest of the model is frozen to preserve learned representations
 freeze:
+  # Set to true to train ALL parameters (full fine-tuning)
+  train_all_params: false
   # Number of encoder down_blocks to unfreeze, counting from the input side
   trainable_encoder_blocks: 1
   # Number of decoder up_blocks to unfreeze, counting from the output side

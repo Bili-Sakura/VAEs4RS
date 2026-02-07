@@ -80,14 +80,26 @@ def prepare_vae_for_training(
     out_channels: int = 1,
     trainable_encoder_blocks: int = 1,
     trainable_decoder_blocks: int = 1,
+    train_all_params: bool = False,
 ) -> AutoencoderKL:
     """Modify a pre-trained SD-VAE for single-channel fine-tuning.
+
+    Args:
+        vae: Pre-trained AutoencoderKL model.
+        in_channels: Number of input channels (1 for single-channel RS).
+        out_channels: Number of output channels (1 for single-channel RS).
+        trainable_encoder_blocks: Number of encoder down-blocks to unfreeze
+            (counting from the input side). Ignored when *train_all_params* is True.
+        trainable_decoder_blocks: Number of decoder up-blocks to unfreeze
+            (counting from the output side). Ignored when *train_all_params* is True.
+        train_all_params: If True, all parameters are trainable (full fine-tuning).
+            If False, only selected layers are unfrozen (partial fine-tuning).
 
     Steps:
         1. Replace encoder.conv_in for *in_channels* input.
         2. Replace decoder.conv_out for *out_channels* output.
-        3. Freeze **all** parameters.
-        4. Selectively unfreeze:
+        3. If *train_all_params*: unfreeze everything.
+           Otherwise: freeze all, then selectively unfreeze:
            - encoder.conv_in  (newly created)
            - first *trainable_encoder_blocks* encoder down-blocks
            - last *trainable_decoder_blocks* decoder up-blocks
@@ -98,29 +110,34 @@ def prepare_vae_for_training(
     replace_encoder_conv_in(vae.encoder, in_channels)
     replace_decoder_conv_out(vae.decoder, out_channels)
 
-    # --- 3: freeze everything ---
-    vae.requires_grad_(False)
+    if train_all_params:
+        # --- Full fine-tuning: all parameters trainable ---
+        vae.requires_grad_(True)
+    else:
+        # --- Partial fine-tuning ---
+        # 3: freeze everything
+        vae.requires_grad_(False)
 
-    # --- 4: selectively unfreeze ---
-    # Encoder input layers
-    for p in vae.encoder.conv_in.parameters():
-        p.requires_grad = True
-
-    n_down = len(vae.encoder.down_blocks)
-    for i in range(min(trainable_encoder_blocks, n_down)):
-        for p in vae.encoder.down_blocks[i].parameters():
+        # 4: selectively unfreeze
+        # Encoder input layers
+        for p in vae.encoder.conv_in.parameters():
             p.requires_grad = True
 
-    # Decoder output layers
-    for p in vae.decoder.conv_norm_out.parameters():
-        p.requires_grad = True
-    for p in vae.decoder.conv_out.parameters():
-        p.requires_grad = True
+        n_down = len(vae.encoder.down_blocks)
+        for i in range(min(trainable_encoder_blocks, n_down)):
+            for p in vae.encoder.down_blocks[i].parameters():
+                p.requires_grad = True
 
-    n_up = len(vae.decoder.up_blocks)
-    for i in range(max(0, n_up - trainable_decoder_blocks), n_up):
-        for p in vae.decoder.up_blocks[i].parameters():
+        # Decoder output layers
+        for p in vae.decoder.conv_norm_out.parameters():
             p.requires_grad = True
+        for p in vae.decoder.conv_out.parameters():
+            p.requires_grad = True
+
+        n_up = len(vae.decoder.up_blocks)
+        for i in range(max(0, n_up - trainable_decoder_blocks), n_up):
+            for p in vae.decoder.up_blocks[i].parameters():
+                p.requires_grad = True
 
     return vae
 

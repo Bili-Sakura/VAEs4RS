@@ -85,6 +85,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--train_all_params", action="store_true", default=None,
+        help="Train all parameters (full fine-tuning) instead of only selected layers.",
+    )
     return parser.parse_args()
 
 
@@ -100,6 +104,7 @@ def merge_args(cfg: dict, args: argparse.Namespace) -> dict:
         "training.learning_rate": args.learning_rate,
         "training.seed": args.seed,
         "training.resume_from_checkpoint": args.resume_from_checkpoint,
+        "freeze.train_all_params": args.train_all_params,
     }
     for dotkey, value in overrides.items():
         if value is None:
@@ -163,6 +168,7 @@ def main():
 
     trainable_enc = _get(cfg, "freeze", "trainable_encoder_blocks", default=1)
     trainable_dec = _get(cfg, "freeze", "trainable_decoder_blocks", default=1)
+    train_all_params = _get(cfg, "freeze", "train_all_params", default=False)
 
     train_dir = _get(cfg, "data", "train_dir")
     val_dir = _get(cfg, "data", "val_dir")
@@ -192,8 +198,8 @@ def main():
     vae = AutoencoderKL.from_pretrained(pretrained_path)
 
     logger.info(
-        "Preparing VAE for single-channel training (in=%d, out=%d)",
-        in_channels, out_channels,
+        "Preparing VAE for single-channel training (in=%d, out=%d, train_all_params=%s)",
+        in_channels, out_channels, train_all_params,
     )
     vae = prepare_vae_for_training(
         vae,
@@ -201,8 +207,9 @@ def main():
         out_channels=out_channels,
         trainable_encoder_blocks=trainable_enc,
         trainable_decoder_blocks=trainable_dec,
+        train_all_params=train_all_params,
     )
-    log_trainable_summary(vae)
+    trainable_count, total_count = log_trainable_summary(vae)
 
     # ---- Dataset ---------------------------------------------------------
     if train_dir is None:
@@ -275,6 +282,9 @@ def main():
 
     # ---- Training Loop ----------------------------------------------------
     logger.info("***** Starting Training *****")
+    logger.info("  Trainable params = %s / %s (%.2f%%)",
+                f"{trainable_count:,}", f"{total_count:,}",
+                100.0 * trainable_count / total_count if total_count > 0 else 0.0)
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num epochs = %d", num_epochs)
     logger.info("  Batch size = %d", batch_size)

@@ -145,6 +145,22 @@ class TestPrepareVaeForTraining:
         for p in vae.post_quant_conv.parameters():
             assert not p.requires_grad
 
+    def test_train_all_params_unfreezes_everything(self, vae):
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, train_all_params=True)
+        for p in vae.parameters():
+            assert p.requires_grad
+
+    def test_train_all_params_channels_modified(self, vae):
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, train_all_params=True)
+        assert vae.encoder.conv_in.in_channels == 1
+        assert vae.decoder.conv_out.out_channels == 1
+
+    def test_train_all_params_count_equals_total(self, vae):
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, train_all_params=True)
+        total = sum(p.numel() for p in vae.parameters())
+        trainable = sum(p.numel() for p in vae.parameters() if p.requires_grad)
+        assert trainable == total
+
 
 # ---- Tests: log_trainable_summary ----------------------------------------
 
