@@ -2,6 +2,7 @@
 
 import importlib
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,20 @@ get_trainable_parameters = _train_mod.get_trainable_parameters
 log_trainable_summary = _train_mod.log_trainable_summary
 SingleChannelRSDataset = _train_mod.SingleChannelRSDataset
 vae_loss = _train_mod.vae_loss
+create_optimizer = _train_mod.create_optimizer
+
+
+class DummyOptimizer:
+    def __init__(self, param_groups):
+        self.param_groups = param_groups
+
+
+class DummyMuon(DummyOptimizer):
+    pass
+
+
+class DummySingleDeviceMuon(DummyOptimizer):
+    pass
 
 
 # ---- Fixtures ------------------------------------------------------------
@@ -168,6 +183,109 @@ def test_log_trainable_summary(vae):
     prepare_vae_for_training(vae, in_channels=1, out_channels=1)
     trainable, total = log_trainable_summary(vae)
     assert 0 < trainable < total
+
+
+# ---- Tests: optimizer selection --------------------------------------------
+
+def test_create_optimizer_adamw(vae):
+    prepare_vae_for_training(vae, in_channels=1, out_channels=1)
+    params = get_trainable_parameters(vae)
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="adamw",
+        learning_rate=1e-3,
+        weight_decay=0.01,
+        beta1=0.9,
+        beta2=0.999,
+    )
+    assert isinstance(optimizer, torch.optim.AdamW)
+
+
+def test_create_optimizer_muon(monkeypatch):
+    module = types.ModuleType("muon")
+
+    module.MuonWithAuxAdam = DummyMuon
+    module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
+    monkeypatch.setitem(sys.modules, "muon", module)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
+
+    weight_param = torch.nn.Parameter(torch.randn(2, 2))
+    bias_param = torch.nn.Parameter(torch.randn(2))
+    params = [weight_param, bias_param]
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="muon",
+        learning_rate=1e-2,
+        weight_decay=0.0,
+        beta1=0.9,
+        beta2=0.95,
+    )
+    assert isinstance(optimizer, DummySingleDeviceMuon)
+    assert len(optimizer.param_groups) == 2
+    muon_group = optimizer.param_groups[0]
+    aux_group = optimizer.param_groups[1]
+    assert muon_group["use_muon"] is True
+    assert muon_group["lr"] == 1e-2
+    assert muon_group["weight_decay"] == 0.0
+    assert len(muon_group["params"]) == 1
+    assert muon_group["params"][0] is weight_param
+    assert {"params", "use_muon", "lr", "weight_decay"} <= muon_group.keys()
+    assert aux_group["use_muon"] is False
+    assert aux_group["lr"] == 1e-2
+    assert aux_group["betas"] == (0.9, 0.95)
+    assert aux_group["weight_decay"] == 0.0
+    assert len(aux_group["params"]) == 1
+    assert aux_group["params"][0] is bias_param
+    assert {"params", "use_muon", "lr", "betas", "weight_decay"} <= aux_group.keys()
+
+
+def test_create_optimizer_muon_distributed(monkeypatch):
+    module = types.ModuleType("muon")
+
+    module.MuonWithAuxAdam = DummyMuon
+    module.SingleDeviceMuonWithAuxAdam = DummySingleDeviceMuon
+    monkeypatch.setitem(sys.modules, "muon", module)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+
+    params = [torch.nn.Parameter(torch.randn(2, 2))]
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="muon",
+        learning_rate=1e-2,
+        weight_decay=0.0,
+    )
+    assert isinstance(optimizer, DummyMuon)
+
+
+def test_create_optimizer_prodigy(monkeypatch):
+    module = types.ModuleType("prodigyopt")
+
+    class DummyProdigy:
+        def __init__(self, params, lr, betas, weight_decay):
+            self.param_groups = [{
+                "params": list(params),
+                "lr": lr,
+                "betas": betas,
+                "weight_decay": weight_decay,
+            }]
+
+    module.Prodigy = DummyProdigy
+    monkeypatch.setitem(sys.modules, "prodigyopt", module)
+
+    params = [torch.nn.Parameter(torch.randn(2, 2))]
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="prodigy",
+        learning_rate=1.0,
+        weight_decay=0.01,
+        beta1=0.9,
+        beta2=0.95,
+    )
+    assert isinstance(optimizer, DummyProdigy)
+    assert optimizer.param_groups[0]["params"] == params
+    assert optimizer.param_groups[0]["lr"] == 1.0
+    assert optimizer.param_groups[0]["betas"] == (0.9, 0.95)
+    assert optimizer.param_groups[0]["weight_decay"] == 0.01
 
 
 # ---- Tests: forward pass -------------------------------------------------

@@ -10,7 +10,7 @@ import os
 import math
 import logging
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Iterable
 
 import torch
 import torch.nn as nn
@@ -157,6 +157,88 @@ def log_trainable_summary(vae: AutoencoderKL) -> Tuple[int, int]:
         f"{trainable:,}", f"{total:,}", pct,
     )
     return trainable, total
+
+
+def create_optimizer(
+    params: Iterable[nn.Parameter],
+    optimizer_name: str = "adamw",
+    learning_rate: float = 1e-4,
+    weight_decay: float = 0.01,
+    beta1: float = 0.9,
+    beta2: float = 0.999,
+) -> torch.optim.Optimizer:
+    """Create an optimizer from a name string and common hyperparameters."""
+    params_list = list(params)
+    if any(isinstance(p, dict) for p in params_list):
+        raise TypeError(
+            "create_optimizer expects raw parameters; pass an iterable of parameters and let "
+            "the helper build any required parameter groups internally."
+        )
+    name = optimizer_name.lower()
+    if name == "adamw":
+        return torch.optim.AdamW(
+            params_list,
+            lr=learning_rate,
+            betas=(beta1, beta2),
+            weight_decay=weight_decay,
+        )
+    elif name == "prodigy":
+        try:
+            from prodigyopt import Prodigy
+        except ImportError as exc:
+            raise ImportError(
+                "Prodigy optimizer requested but prodigyopt is not installed. "
+                "Install with `pip install prodigyopt`."
+            ) from exc
+        return Prodigy(
+            params_list,
+            lr=learning_rate,
+            betas=(beta1, beta2),
+            weight_decay=weight_decay,
+        )
+    elif name == "muon":
+        try:
+            from muon import MuonWithAuxAdam, SingleDeviceMuonWithAuxAdam
+        except ImportError as exc:
+            raise ImportError(
+                "Muon optimizer requested but muon is not installed. "
+                "Install with `pip install git+https://github.com/KellerJordan/Muon`."
+            ) from exc
+        # Muon is intended for matrix-like weights; biases/norms use AdamW.
+        muon_params = [p for p in params_list if p.ndim >= 2]
+        aux_params = [p for p in params_list if p.ndim < 2]
+        if not muon_params:
+            raise ValueError(
+                "Muon optimizer requires parameters with ndim >= 2; "
+                "none were found in the provided parameter list."
+            )
+        # Muon param groups use standard optimizer keys plus the Muon-specific "use_muon" flag.
+        muon_group = dict(
+            params=muon_params,
+            use_muon=True,
+            lr=learning_rate,
+            weight_decay=weight_decay,
+        )
+        param_groups = [muon_group]
+        if aux_params:
+            param_groups.append(
+                dict(
+                    params=aux_params,
+                    use_muon=False,
+                    lr=learning_rate,
+                    betas=(beta1, beta2),
+                    weight_decay=weight_decay,
+                )
+            )
+        if torch.distributed.is_initialized():
+            optimizer_cls = MuonWithAuxAdam
+        else:
+            optimizer_cls = SingleDeviceMuonWithAuxAdam
+        return optimizer_cls(param_groups)
+    raise ValueError(
+        f"Unsupported optimizer '{optimizer_name}'. "
+        "Choose from: adamw, muon, prodigy."
+    )
 
 
 # ---------------------------------------------------------------------------
