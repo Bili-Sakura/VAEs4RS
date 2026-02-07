@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """
-Train a single-channel VAE for remote sensing images (IR, SAR, EO).
+Train (fine-tune) any VAE model on remote sensing images.
 
-Fine-tunes a pre-trained SD-VAE by modifying the first/last conv layers
-for 1-channel input/output and freezing the remaining parameters.
+Supports all VAE architectures in the repository:
+- AutoencoderKL (SD21-VAE, SDXL-VAE, SD35-VAE)
+- AutoencoderKLFlux2 (FLUX2-VAE)
+- AutoencoderKLQwenImage (Qwen-VAE)
+- AutoencoderDC (SANA-VAE)
+- AutoencoderKL (FLUX1-VAE)
+
+For single-channel remote sensing (IR, SAR, EO), set model.in_channels and
+model.out_channels to 1 in the config. Conv layer replacement is automatically
+applied for AutoencoderKL-family models.
 
 Usage:
     # Single GPU
-    python train_vae_rs.py --config configs/train_rs_vae.yaml
+    python scripts/train_vae.py --config configs/train_rs_vae.yaml
 
     # Multi-GPU with accelerate
-    accelerate launch train_vae_rs.py --config configs/train_rs_vae.yaml
+    accelerate launch scripts/train_vae.py --config configs/train_rs_vae.yaml
 
     # Override specific settings
-    python train_vae_rs.py --config configs/train_rs_vae.yaml \
+    python scripts/train_vae.py --config configs/train_vae.yaml \
         --pretrained_path stabilityai/sd-vae-ft-mse \
         --train_dir datasets/sar/train \
         --output_dir outputs/sar_vae \
@@ -35,24 +43,22 @@ from tqdm.auto import tqdm
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
-from diffusers import AutoencoderKL
 from diffusers.optimization import get_scheduler
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Ensure project root is on sys.path
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
-import importlib.util as _ilu
-
-# Import src/train.py directly to avoid heavy dependencies in src/__init__.py
-_spec = _ilu.spec_from_file_location("src_train", str(Path(__file__).parent / "src" / "train.py"))
-_train = _ilu.module_from_spec(_spec)
-_spec.loader.exec_module(_train)
-SingleChannelRSDataset = _train.SingleChannelRSDataset
-prepare_vae_for_training = _train.prepare_vae_for_training
-get_trainable_parameters = _train.get_trainable_parameters
-log_trainable_summary = _train.log_trainable_summary
-vae_loss = _train.vae_loss
-create_optimizer = _train.create_optimizer
+from src.training.train_utils import (
+    load_vae_for_training,
+    prepare_vae_for_training,
+    get_trainable_parameters,
+    log_trainable_summary,
+    vae_loss,
+    create_optimizer,
+    SingleChannelRSDataset,
+)
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -70,7 +76,7 @@ def load_train_config(path: str) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fine-tune SD-VAE for single-channel remote sensing images."
+        description="Fine-tune any VAE for remote sensing images."
     )
     parser.add_argument(
         "--config", type=str, default="configs/train_rs_vae.yaml",
@@ -145,7 +151,7 @@ def main():
 
     # Shorthand accessors
     seed = _get(cfg, "training", "seed", default=42)
-    output_dir = _get(cfg, "training", "output_dir", default="outputs/train_rs_vae")
+    output_dir = _get(cfg, "training", "output_dir", default="outputs/train_vae")
     num_epochs = _get(cfg, "training", "num_epochs", default=100)
     batch_size = _get(cfg, "training", "batch_size", default=8)
     grad_accum = _get(cfg, "training", "gradient_accumulation_steps", default=1)
@@ -165,8 +171,9 @@ def main():
     resume_ckpt = _get(cfg, "training", "resume_from_checkpoint")
 
     pretrained_path = _get(cfg, "model", "pretrained_path", default="stabilityai/sd-vae-ft-mse")
-    in_channels = _get(cfg, "model", "in_channels", default=1)
-    out_channels = _get(cfg, "model", "out_channels", default=1)
+    subfolder = _get(cfg, "model", "subfolder")
+    in_channels = _get(cfg, "model", "in_channels", default=3)
+    out_channels = _get(cfg, "model", "out_channels", default=3)
 
     trainable_enc = _get(cfg, "freeze", "trainable_encoder_blocks", default=1)
     trainable_dec = _get(cfg, "freeze", "trainable_decoder_blocks", default=1)
@@ -197,10 +204,11 @@ def main():
 
     # ---- Model -----------------------------------------------------------
     logger.info("Loading pre-trained VAE from %s", pretrained_path)
-    vae = AutoencoderKL.from_pretrained(pretrained_path)
+    vae, vae_class_name = load_vae_for_training(pretrained_path, subfolder=subfolder)
+    logger.info("Detected VAE architecture: %s", vae_class_name)
 
     logger.info(
-        "Preparing VAE for single-channel training (in=%d, out=%d, train_all_params=%s)",
+        "Preparing VAE for training (in=%d, out=%d, train_all_params=%s)",
         in_channels, out_channels, train_all_params,
     )
     vae = prepare_vae_for_training(
@@ -282,10 +290,11 @@ def main():
 
     # ---- Logging ----------------------------------------------------------
     if accelerator.is_main_process:
-        accelerator.init_trackers("rs_vae_training", config=cfg)
+        accelerator.init_trackers("vae_training", config=cfg)
 
     # ---- Training Loop ----------------------------------------------------
     logger.info("***** Starting Training *****")
+    logger.info("  VAE architecture = %s", vae_class_name)
     logger.info("  Trainable params = %s / %s (%.2f%%)",
                 f"{trainable_count:,}", f"{total_count:,}",
                 100.0 * trainable_count / total_count if total_count > 0 else 0.0)

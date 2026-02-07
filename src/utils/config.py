@@ -8,8 +8,8 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Any
 
-# Project root (parent of src/)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Project root (parent of src/utils/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 

@@ -10,10 +10,10 @@ from tqdm import tqdm
 
 from diffusers.training_utils import free_memory
 
-from .config import get_config, EvalConfig
-from .models import load_vae, VAEWrapper
-from .datasets import load_dataset
-from .metrics import MetricCalculator, MetricResults
+from src.utils.config import get_config, EvalConfig
+from src.models.vae_wrapper import load_vae, VAEWrapper
+from src.utils.datasets import load_dataset
+from src.evaluation.metrics import MetricCalculator, MetricResults
 
 
 # Distortion functions

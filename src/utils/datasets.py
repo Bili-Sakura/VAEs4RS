@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from PIL import Image
 
-from .config import get_config, PROJECT_ROOT
+from src.utils.config import get_config, PROJECT_ROOT
 from diffusers.image_processor import VaeImageProcessor
 
 # Optional rasterio for TIFF support

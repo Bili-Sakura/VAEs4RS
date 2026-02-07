@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 from diffusers.utils import pt_to_pil
 from diffusers.training_utils import free_memory
 
-from .models import load_vae
-from .datasets import load_dataset
+from src.models.vae_wrapper import load_vae
+from src.utils.datasets import load_dataset
 
 
 def tensor_to_image(tensor: torch.Tensor) -> np.ndarray:
