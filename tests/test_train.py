@@ -213,7 +213,16 @@ def test_create_optimizer_muon(monkeypatch):
         adam_beta2=0.95,
     )
     assert isinstance(optimizer, DummyMuon)
-    assert optimizer.param_groups[0]["use_muon"] is True
+    assert len(optimizer.param_groups) == 2
+    muon_group = optimizer.param_groups[0]
+    aux_group = optimizer.param_groups[1]
+    assert muon_group["use_muon"] is True
+    assert muon_group["lr"] == 1e-2
+    assert muon_group["weight_decay"] == 0.0
+    assert len(muon_group["params"]) == 1
+    assert aux_group["use_muon"] is False
+    assert aux_group["betas"] == (0.9, 0.95)
+    assert len(aux_group["params"]) == 1
 
 
 def test_create_optimizer_prodigy(monkeypatch):

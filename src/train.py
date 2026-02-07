@@ -161,7 +161,7 @@ def log_trainable_summary(vae: AutoencoderKL) -> Tuple[int, int]:
 
 def create_optimizer(
     params: List[nn.Parameter],
-    optimizer_name: str,
+    optimizer_name: Optional[str],
     learning_rate: float,
     weight_decay: float,
     adam_beta1: float = 0.9,
