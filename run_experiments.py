@@ -20,7 +20,7 @@ from src.config import get_config
 from src.evaluate import evaluate_all, print_results_table
 from src.ablation import run_ablation_study, print_ablation_table
 from src.visualize import visualize_reconstructions
-from src.utils import set_seed
+from diffusers.training_utils import set_seed
 
 
 def run_main(cfg):

@@ -2,7 +2,6 @@
 Main evaluation script for VAE reconstruction quality on remote sensing datasets.
 """
 
-import gc
 import json
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -10,6 +9,8 @@ from typing import Optional, List, Dict
 import torch
 import numpy as np
 from tqdm import tqdm
+
+from diffusers.training_utils import free_memory
 
 from .config import get_config, EvalConfig, PROJECT_ROOT
 from .models import load_vae, VAEWrapper
@@ -106,8 +107,8 @@ def evaluate_single(
         del images, reconstructed
         if latents is not None:
             del latents
-        if config.device.startswith("cuda") and batch_idx % 3 == 0:
-            torch.cuda.empty_cache()
+        if batch_idx % 3 == 0:
+            free_memory()
     
     return calculator.compute()
 
@@ -152,9 +153,7 @@ def evaluate_all(
         results[model_name] = {}
         
         # Clear memory
-        if config.device.startswith("cuda"):
-            torch.cuda.empty_cache()
-        gc.collect()
+        free_memory()
         
         print(f"\n{'='*60}\nLoading {model_name}...\n{'='*60}")
         
@@ -203,9 +202,7 @@ def evaluate_all(
                     results[model_name][dataset_name] = None
         finally:
             del vae
-            if config.device.startswith("cuda"):
-                torch.cuda.empty_cache()
-            gc.collect()
+            free_memory()
     
     return results
 

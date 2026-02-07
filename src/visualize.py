@@ -9,15 +9,17 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+from diffusers.utils import pt_to_pil
+from diffusers.training_utils import free_memory
+
 from .models import load_vae
 from .datasets import load_dataset
 
 
 def tensor_to_image(tensor: torch.Tensor) -> np.ndarray:
     """Convert tensor (3, H, W) in [-1, 1] to numpy image (H, W, 3) in [0, 255]."""
-    img = tensor.cpu().numpy()
-    img = np.clip((img + 1) / 2 * 255, 0, 255).astype(np.uint8)
-    return np.transpose(img, (1, 2, 0))
+    pil_img = pt_to_pil(tensor.unsqueeze(0))[0]
+    return np.array(pil_img)
 
 
 def visualize_reconstructions(
@@ -47,7 +49,7 @@ def visualize_reconstructions(
             reconstructions[model_name] = recon.float()
             
             del vae
-            torch.cuda.empty_cache()
+            free_memory()
         except Exception as e:
             print(f"Failed to load {model_name}: {e}")
     
