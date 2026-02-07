@@ -184,7 +184,12 @@ def create_optimizer(
                 "Prodigy optimizer requested but prodigyopt is not installed. "
                 "Install with `pip install prodigyopt`."
             ) from exc
-        return Prodigy(params, lr=learning_rate, weight_decay=weight_decay)
+        return Prodigy(
+            params,
+            lr=learning_rate,
+            betas=(beta1, beta2),
+            weight_decay=weight_decay,
+        )
     if name == "muon":
         try:
             from muon import MuonWithAuxAdam, SingleDeviceMuonWithAuxAdam

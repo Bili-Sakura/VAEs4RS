@@ -265,10 +265,11 @@ def test_create_optimizer_prodigy(monkeypatch):
     module = types.ModuleType("prodigyopt")
 
     class DummyProdigy:
-        def __init__(self, params, lr, weight_decay):
+        def __init__(self, params, lr, betas, weight_decay):
             self.param_groups = [{
                 "params": list(params),
                 "lr": lr,
+                "betas": betas,
                 "weight_decay": weight_decay,
             }]
 
@@ -287,6 +288,7 @@ def test_create_optimizer_prodigy(monkeypatch):
     assert isinstance(optimizer, DummyProdigy)
     assert optimizer.param_groups[0]["params"] == params
     assert optimizer.param_groups[0]["lr"] == 1.0
+    assert optimizer.param_groups[0]["betas"] == (0.9, 0.95)
     assert optimizer.param_groups[0]["weight_decay"] == 0.01
 
 
