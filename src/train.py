@@ -176,7 +176,7 @@ def create_optimizer(
             betas=(beta1, beta2),
             weight_decay=weight_decay,
         )
-    if name == "prodigy":
+    elif name == "prodigy":
         try:
             from prodigyopt import Prodigy
         except ImportError as exc:
@@ -190,7 +190,7 @@ def create_optimizer(
             betas=(beta1, beta2),
             weight_decay=weight_decay,
         )
-    if name == "muon":
+    elif name == "muon":
         try:
             from muon import MuonWithAuxAdam, SingleDeviceMuonWithAuxAdam
         except ImportError as exc:
