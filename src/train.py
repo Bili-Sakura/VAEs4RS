@@ -161,14 +161,14 @@ def log_trainable_summary(vae: AutoencoderKL) -> Tuple[int, int]:
 
 def create_optimizer(
     params: List[nn.Parameter],
-    optimizer_name: Optional[str],
+    optimizer_name: str = "adamw",
     learning_rate: float,
     weight_decay: float,
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.999,
 ) -> torch.optim.Optimizer:
     """Create an optimizer from a name string and common hyperparameters."""
-    name = (optimizer_name or "adamw").lower()
+    name = optimizer_name.lower()
     if name == "adamw":
         return torch.optim.AdamW(
             params,

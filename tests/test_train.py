@@ -220,9 +220,11 @@ def test_create_optimizer_muon(monkeypatch):
     assert muon_group["lr"] == 1e-2
     assert muon_group["weight_decay"] == 0.0
     assert len(muon_group["params"]) == 1
+    assert set(muon_group.keys()) == {"params", "use_muon", "lr", "weight_decay"}
     assert aux_group["use_muon"] is False
     assert aux_group["betas"] == (0.9, 0.95)
     assert len(aux_group["params"]) == 1
+    assert set(aux_group.keys()) == {"params", "use_muon", "lr", "betas", "weight_decay"}
 
 
 def test_create_optimizer_prodigy(monkeypatch):
@@ -247,6 +249,9 @@ def test_create_optimizer_prodigy(monkeypatch):
         adam_beta2=0.95,
     )
     assert isinstance(optimizer, DummyProdigy)
+    assert optimizer.params == params
+    assert optimizer.lr == 1.0
+    assert optimizer.weight_decay == 0.01
 
 
 # ---- Tests: forward pass -------------------------------------------------
