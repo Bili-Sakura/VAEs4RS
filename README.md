@@ -43,6 +43,41 @@ In this work, we explored the robustness of natural image priors in VAEs for rem
 
 For code usage, installation, and detailed documentation, see [src/README.md](src/README.md).
 
+### Training
+
+Fine-tune any VAE on remote sensing images:
+
+```bash
+# Single-channel RS (IR, SAR, EO) with SD-VAE
+python scripts/train_vae.py --config configs/train_rs_vae.yaml
+
+# Any VAE with generic config
+python scripts/train_vae.py --config configs/train_vae.yaml
+
+# Multi-GPU training
+accelerate launch scripts/train_vae.py --config configs/train_vae.yaml
+
+# Override settings via CLI
+python scripts/train_vae.py --config configs/train_vae.yaml \
+    --pretrained_path stabilityai/sd-vae-ft-mse \
+    --train_dir datasets/rs/train \
+    --num_epochs 50
+```
+
+### Evaluation
+
+```bash
+python scripts/run_experiments.py              # Run main evaluation
+python scripts/run_experiments.py --ablation   # Run ablation study
+python scripts/run_experiments.py --visualize  # Generate visualizations
+```
+
+### Interactive Viewer
+
+```bash
+streamlit run scripts/streamlit_app.py
+```
+
 **Resources:**
 - VAE Models: [https://huggingface.co/BiliSakura/VAEs](https://huggingface.co/BiliSakura/VAEs)
 - Datasets: [https://huggingface.co/blanchon/AID](https://huggingface.co/blanchon/AID) and [https://huggingface.co/blanchon/RESISC45](https://huggingface.co/blanchon/RESISC45)
