@@ -182,8 +182,8 @@ def test_create_optimizer_adamw(vae):
         optimizer_name="adamw",
         learning_rate=1e-3,
         weight_decay=0.01,
-        adam_beta1=0.9,
-        adam_beta2=0.999,
+        beta1=0.9,
+        beta2=0.999,
     )
     assert isinstance(optimizer, torch.optim.AdamW)
 
@@ -200,17 +200,16 @@ def test_create_optimizer_muon(monkeypatch):
     monkeypatch.setitem(sys.modules, "muon", module)
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
 
-    params = [
-        torch.nn.Parameter(torch.randn(2, 2)),
-        torch.nn.Parameter(torch.randn(2)),
-    ]
+    weight_param = torch.nn.Parameter(torch.randn(2, 2))
+    bias_param = torch.nn.Parameter(torch.randn(2))
+    params = [weight_param, bias_param]
     optimizer = create_optimizer(
         params,
         optimizer_name="muon",
         learning_rate=1e-2,
         weight_decay=0.0,
-        adam_beta1=0.9,
-        adam_beta2=0.95,
+        beta1=0.9,
+        beta2=0.95,
     )
     assert isinstance(optimizer, DummyMuon)
     assert len(optimizer.param_groups) == 2
@@ -220,10 +219,12 @@ def test_create_optimizer_muon(monkeypatch):
     assert muon_group["lr"] == 1e-2
     assert muon_group["weight_decay"] == 0.0
     assert len(muon_group["params"]) == 1
+    assert muon_group["params"][0] is weight_param
     assert set(muon_group.keys()) == {"params", "use_muon", "lr", "weight_decay"}
     assert aux_group["use_muon"] is False
     assert aux_group["betas"] == (0.9, 0.95)
     assert len(aux_group["params"]) == 1
+    assert aux_group["params"][0] is bias_param
     assert set(aux_group.keys()) == {"params", "use_muon", "lr", "betas", "weight_decay"}
 
 
@@ -245,8 +246,8 @@ def test_create_optimizer_prodigy(monkeypatch):
         optimizer_name="prodigy",
         learning_rate=1.0,
         weight_decay=0.01,
-        adam_beta1=0.9,
-        adam_beta2=0.95,
+        beta1=0.9,
+        beta2=0.95,
     )
     assert isinstance(optimizer, DummyProdigy)
     assert optimizer.params == params

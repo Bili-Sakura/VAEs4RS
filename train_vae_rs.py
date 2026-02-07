@@ -247,8 +247,8 @@ def main():
         optimizer_name=optimizer_name,
         learning_rate=lr,
         weight_decay=weight_decay,
-        adam_beta1=adam_beta1,
-        adam_beta2=adam_beta2,
+        beta1=adam_beta1,
+        beta2=adam_beta2,
     )
 
     num_update_steps_per_epoch = math.ceil(

@@ -164,8 +164,8 @@ def create_optimizer(
     optimizer_name: str = "adamw",
     learning_rate: float,
     weight_decay: float,
-    adam_beta1: float = 0.9,
-    adam_beta2: float = 0.999,
+    beta1: float = 0.9,
+    beta2: float = 0.999,
 ) -> torch.optim.Optimizer:
     """Create an optimizer from a name string and common hyperparameters."""
     name = optimizer_name.lower()
@@ -173,7 +173,7 @@ def create_optimizer(
         return torch.optim.AdamW(
             params,
             lr=learning_rate,
-            betas=(adam_beta1, adam_beta2),
+            betas=(beta1, beta2),
             weight_decay=weight_decay,
         )
     if name == "prodigy":
@@ -210,7 +210,7 @@ def create_optimizer(
                     params=aux_params,
                     use_muon=False,
                     lr=learning_rate,
-                    betas=(adam_beta1, adam_beta2),
+                    betas=(beta1, beta2),
                     weight_decay=weight_decay,
                 )
             )
