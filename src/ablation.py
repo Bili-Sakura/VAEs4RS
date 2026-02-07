@@ -8,6 +8,8 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+from diffusers.training_utils import free_memory
+
 from .config import get_config, EvalConfig
 from .models import load_vae, VAEWrapper
 from .datasets import load_dataset
@@ -107,8 +109,7 @@ def run_ablation_study(
                 print(f"  PSNR Improvement: {results[model_name][distortion_name]['improvement']['psnr']:.2f} dB")
         finally:
             del vae
-            if config.device.startswith("cuda"):
-                torch.cuda.empty_cache()
+            free_memory()
     
     return results
 

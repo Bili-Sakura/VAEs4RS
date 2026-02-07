@@ -15,6 +15,7 @@ from torchvision import transforms
 from PIL import Image
 
 from .config import get_config, PROJECT_ROOT
+from diffusers.image_processor import VaeImageProcessor
 
 # Optional rasterio for TIFF support
 try:
@@ -44,8 +45,7 @@ def get_transform(image_size: Optional[int] = None) -> transforms.Compose:
 def get_inverse_transform() -> transforms.Compose:
     """Get inverse transform to convert tensors back to images."""
     return transforms.Compose([
-        transforms.Normalize(mean=[-1, -1, -1], std=[2, 2, 2]),
-        transforms.Lambda(lambda x: x.clamp(0, 1)),
+        transforms.Lambda(lambda x: VaeImageProcessor.denormalize(x)),
     ])
 
 
