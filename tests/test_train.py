@@ -28,14 +28,17 @@ vae_loss = _train_mod.vae_loss
 create_optimizer = _train_mod.create_optimizer
 
 
-class DummyMuon:
+class DummyOptimizer:
     def __init__(self, param_groups):
         self.param_groups = param_groups
 
 
-class DummySingleDeviceMuon:
-    def __init__(self, param_groups):
-        self.param_groups = param_groups
+class DummyMuon(DummyOptimizer):
+    pass
+
+
+class DummySingleDeviceMuon(DummyOptimizer):
+    pass
 
 
 # ---- Fixtures ------------------------------------------------------------

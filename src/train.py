@@ -10,7 +10,7 @@ import os
 import math
 import logging
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Iterable
 
 import torch
 import torch.nn as nn
@@ -160,7 +160,7 @@ def log_trainable_summary(vae: AutoencoderKL) -> Tuple[int, int]:
 
 
 def create_optimizer(
-    params: List[nn.Parameter],
+    params: Iterable[nn.Parameter],
     optimizer_name: str = "adamw",
     learning_rate: float = 1e-4,
     weight_decay: float = 0.01,
@@ -168,10 +168,15 @@ def create_optimizer(
     beta2: float = 0.999,
 ) -> torch.optim.Optimizer:
     """Create an optimizer from a name string and common hyperparameters."""
+    params_list = list(params)
+    if any(isinstance(p, dict) for p in params_list):
+        raise TypeError(
+            "create_optimizer expects an iterable of parameters, not parameter group dicts."
+        )
     name = optimizer_name.lower()
     if name == "adamw":
         return torch.optim.AdamW(
-            params,
+            params_list,
             lr=learning_rate,
             betas=(beta1, beta2),
             weight_decay=weight_decay,
@@ -185,7 +190,7 @@ def create_optimizer(
                 "Install with `pip install prodigyopt`."
             ) from exc
         return Prodigy(
-            params,
+            params_list,
             lr=learning_rate,
             betas=(beta1, beta2),
             weight_decay=weight_decay,
@@ -199,8 +204,8 @@ def create_optimizer(
                 "Install with `pip install git+https://github.com/KellerJordan/Muon`."
             ) from exc
         # Muon is intended for matrix-like weights; biases/norms use AdamW.
-        muon_params = [p for p in params if p.ndim >= 2]
-        aux_params = [p for p in params if p.ndim < 2]
+        muon_params = [p for p in params_list if p.ndim >= 2]
+        aux_params = [p for p in params_list if p.ndim < 2]
         if not muon_params:
             raise ValueError(
                 "Muon optimizer requires parameters with ndim >= 2; "
