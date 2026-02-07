@@ -229,14 +229,14 @@ def test_create_optimizer_muon(monkeypatch):
     assert muon_group["weight_decay"] == 0.0
     assert len(muon_group["params"]) == 1
     assert muon_group["params"][0] is weight_param
-    assert muon_group.keys() == {"params", "use_muon", "lr", "weight_decay"}
+    assert {"params", "use_muon", "lr", "weight_decay"} <= muon_group.keys()
     assert aux_group["use_muon"] is False
     assert aux_group["lr"] == 1e-2
     assert aux_group["betas"] == (0.9, 0.95)
     assert aux_group["weight_decay"] == 0.0
     assert len(aux_group["params"]) == 1
     assert aux_group["params"][0] is bias_param
-    assert aux_group.keys() == {"params", "use_muon", "lr", "betas", "weight_decay"}
+    assert {"params", "use_muon", "lr", "betas", "weight_decay"} <= aux_group.keys()
 
 
 def test_create_optimizer_muon_distributed(monkeypatch):

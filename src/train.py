@@ -211,10 +211,11 @@ def create_optimizer(
                 "Muon optimizer requires parameters with ndim >= 2; "
                 "none were found in the provided parameter list."
             )
+        # Muon param groups use standard optimizer keys like "lr" and "weight_decay".
         muon_group = dict(
             params=muon_params,
             use_muon=True,
-            lr=learning_rate,  # Muon API expects "lr" in param groups.
+            lr=learning_rate,
             weight_decay=weight_decay,
         )
         param_groups = [muon_group]
