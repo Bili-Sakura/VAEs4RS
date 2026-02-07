@@ -226,6 +226,7 @@ def test_create_optimizer_muon(monkeypatch):
     assert muon_group["params"][0] is weight_param
     assert set(muon_group.keys()) == {"params", "use_muon", "lr", "weight_decay"}
     assert aux_group["use_muon"] is False
+    assert aux_group["lr"] == 1e-2
     assert aux_group["betas"] == (0.9, 0.95)
     assert len(aux_group["params"]) == 1
     assert aux_group["params"][0] is bias_param
