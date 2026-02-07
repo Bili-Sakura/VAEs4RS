@@ -1,7 +1,7 @@
-models
-datasets
-outputs
-checkpoints
+/models
+/datasets
+/outputs
+/checkpoints
 
 # IDEs and Editors
 .vscode/
