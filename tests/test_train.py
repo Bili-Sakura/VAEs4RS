@@ -2,6 +2,7 @@
 
 import importlib
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ get_trainable_parameters = _train_mod.get_trainable_parameters
 log_trainable_summary = _train_mod.log_trainable_summary
 SingleChannelRSDataset = _train_mod.SingleChannelRSDataset
 vae_loss = _train_mod.vae_loss
+create_optimizer = _train_mod.create_optimizer
 
 
 # ---- Fixtures ------------------------------------------------------------
@@ -168,6 +170,74 @@ def test_log_trainable_summary(vae):
     prepare_vae_for_training(vae, in_channels=1, out_channels=1)
     trainable, total = log_trainable_summary(vae)
     assert 0 < trainable < total
+
+
+# ---- Tests: optimizer selection --------------------------------------------
+
+def test_create_optimizer_adamw(vae):
+    prepare_vae_for_training(vae, in_channels=1, out_channels=1)
+    params = get_trainable_parameters(vae)
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="adamw",
+        learning_rate=1e-3,
+        weight_decay=0.01,
+        adam_beta1=0.9,
+        adam_beta2=0.999,
+    )
+    assert isinstance(optimizer, torch.optim.AdamW)
+
+
+def test_create_optimizer_muon(monkeypatch):
+    module = types.ModuleType("muon")
+
+    class DummyMuon:
+        def __init__(self, param_groups):
+            self.param_groups = param_groups
+
+    module.MuonWithAuxAdam = DummyMuon
+    module.SingleDeviceMuonWithAuxAdam = DummyMuon
+    monkeypatch.setitem(sys.modules, "muon", module)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
+
+    params = [
+        torch.nn.Parameter(torch.randn(2, 2)),
+        torch.nn.Parameter(torch.randn(2)),
+    ]
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="muon",
+        learning_rate=1e-2,
+        weight_decay=0.0,
+        adam_beta1=0.9,
+        adam_beta2=0.95,
+    )
+    assert isinstance(optimizer, DummyMuon)
+    assert optimizer.param_groups[0]["use_muon"] is True
+
+
+def test_create_optimizer_prodigy(monkeypatch):
+    module = types.ModuleType("prodigyopt")
+
+    class DummyProdigy:
+        def __init__(self, params, lr, weight_decay):
+            self.params = params
+            self.lr = lr
+            self.weight_decay = weight_decay
+
+    module.Prodigy = DummyProdigy
+    monkeypatch.setitem(sys.modules, "prodigyopt", module)
+
+    params = [torch.nn.Parameter(torch.randn(2, 2))]
+    optimizer = create_optimizer(
+        params,
+        optimizer_name="prodigy",
+        learning_rate=1.0,
+        weight_decay=0.01,
+        adam_beta1=0.9,
+        adam_beta2=0.95,
+    )
+    assert isinstance(optimizer, DummyProdigy)
 
 
 # ---- Tests: forward pass -------------------------------------------------

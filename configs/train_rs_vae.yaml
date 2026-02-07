@@ -29,7 +29,7 @@ training:
   gradient_accumulation_steps: 1
   mixed_precision: bf16   # "no", "fp16", or "bf16"
 
-  # Optimizer
+  # Optimizer (adamw, muon, prodigy)
   learning_rate: 1.0e-4
   optimizer: adamw
   weight_decay: 0.01

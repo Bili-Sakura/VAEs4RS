@@ -52,6 +52,7 @@ prepare_vae_for_training = _train.prepare_vae_for_training
 get_trainable_parameters = _train.get_trainable_parameters
 log_trainable_summary = _train.log_trainable_summary
 vae_loss = _train.vae_loss
+create_optimizer = _train.create_optimizer
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -150,6 +151,7 @@ def main():
     grad_accum = _get(cfg, "training", "gradient_accumulation_steps", default=1)
     mixed_precision = _get(cfg, "training", "mixed_precision", default="bf16")
     lr = _get(cfg, "training", "learning_rate", default=1e-4)
+    optimizer_name = _get(cfg, "training", "optimizer", default="adamw")
     weight_decay = _get(cfg, "training", "weight_decay", default=0.01)
     adam_beta1 = _get(cfg, "training", "adam_beta1", default=0.9)
     adam_beta2 = _get(cfg, "training", "adam_beta2", default=0.999)
@@ -240,11 +242,13 @@ def main():
 
     # ---- Optimizer & Scheduler -------------------------------------------
     trainable_params = get_trainable_parameters(vae)
-    optimizer = torch.optim.AdamW(
+    optimizer = create_optimizer(
         trainable_params,
-        lr=lr,
-        betas=(adam_beta1, adam_beta2),
+        optimizer_name=optimizer_name,
+        learning_rate=lr,
         weight_decay=weight_decay,
+        adam_beta1=adam_beta1,
+        adam_beta2=adam_beta2,
     )
 
     num_update_steps_per_epoch = math.ceil(

@@ -159,6 +159,72 @@ def log_trainable_summary(vae: AutoencoderKL) -> Tuple[int, int]:
     return trainable, total
 
 
+def create_optimizer(
+    params: List[nn.Parameter],
+    optimizer_name: str,
+    learning_rate: float,
+    weight_decay: float,
+    adam_beta1: float = 0.9,
+    adam_beta2: float = 0.999,
+) -> torch.optim.Optimizer:
+    """Create an optimizer from a name string and common hyperparameters."""
+    name = (optimizer_name or "adamw").lower()
+    if name == "adamw":
+        return torch.optim.AdamW(
+            params,
+            lr=learning_rate,
+            betas=(adam_beta1, adam_beta2),
+            weight_decay=weight_decay,
+        )
+    if name == "prodigy":
+        try:
+            from prodigyopt import Prodigy
+        except ImportError as exc:
+            raise ImportError(
+                "Prodigy optimizer requested but prodigyopt is not installed. "
+                "Install with `pip install prodigyopt`."
+            ) from exc
+        return Prodigy(params, lr=learning_rate, weight_decay=weight_decay)
+    if name == "muon":
+        try:
+            from muon import MuonWithAuxAdam, SingleDeviceMuonWithAuxAdam
+        except ImportError as exc:
+            raise ImportError(
+                "Muon optimizer requested but muon is not installed. "
+                "Install with `pip install git+https://github.com/KellerJordan/Muon`."
+            ) from exc
+        muon_params = [p for p in params if p.ndim >= 2]
+        aux_params = [p for p in params if p.ndim < 2]
+        if not muon_params:
+            raise ValueError("Muon optimizer requires parameters with ndim >= 2.")
+        muon_group = dict(
+            params=muon_params,
+            use_muon=True,
+            lr=learning_rate,
+            weight_decay=weight_decay,
+        )
+        param_groups = [muon_group]
+        if aux_params:
+            param_groups.append(
+                dict(
+                    params=aux_params,
+                    use_muon=False,
+                    lr=learning_rate,
+                    betas=(adam_beta1, adam_beta2),
+                    weight_decay=weight_decay,
+                )
+            )
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            optimizer_cls = MuonWithAuxAdam
+        else:
+            optimizer_cls = SingleDeviceMuonWithAuxAdam
+        return optimizer_cls(param_groups)
+    raise ValueError(
+        f"Unsupported optimizer '{optimizer_name}'. "
+        "Choose from: adamw, muon, prodigy."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Single-channel remote sensing dataset
 # ---------------------------------------------------------------------------
