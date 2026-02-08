@@ -70,6 +70,10 @@ python scripts/train_vae.py --config configs/train_vae.yaml \
 python scripts/run_experiments.py              # Run main evaluation
 python scripts/run_experiments.py --ablation   # Run ablation study
 python scripts/run_experiments.py --visualize  # Generate visualizations
+
+# Quick single-image reconstruction sanity check (1-channel SAR/IR/EO)
+python scripts/quick_vae_reconstruction.py --input-dir /path/to/images \
+    --vae-path ./models/BiliSakura/VAEs --resolution 512 --output-dir ./outputs
 ```
 
 ### Interactive Viewer
