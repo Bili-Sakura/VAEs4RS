@@ -390,3 +390,91 @@ class TestMultiArchitectureTraining:
         total = sum(p.numel() for p in vae.parameters())
         trainable = sum(p.numel() for p in vae.parameters() if p.requires_grad)
         assert 0 < trainable < total
+
+
+# ---- Tests: asymmetric fine-tuning --------------------------------------
+
+class TestAsymmetricTraining:
+    """Tests for asymmetric fine-tuning (freeze encoder, unfreeze decoder)."""
+
+    def test_encoder_frozen_except_conv_in(self, vae):
+        """Encoder blocks and mid_block should be frozen; conv_in trainable."""
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, asymmetric=True)
+        # conv_in must be trainable
+        for p in vae.encoder.conv_in.parameters():
+            assert p.requires_grad
+        # down_blocks must be frozen
+        for block in vae.encoder.down_blocks:
+            for p in block.parameters():
+                assert not p.requires_grad
+        # mid_block must be frozen
+        for p in vae.encoder.mid_block.parameters():
+            assert not p.requires_grad
+
+    def test_decoder_fully_trainable(self, vae):
+        """All decoder parameters should be trainable."""
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, asymmetric=True)
+        for p in vae.decoder.parameters():
+            assert p.requires_grad
+
+    def test_quant_conv_frozen(self, vae):
+        """quant_conv and post_quant_conv should be frozen."""
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, asymmetric=True)
+        for p in vae.quant_conv.parameters():
+            assert not p.requires_grad
+        for p in vae.post_quant_conv.parameters():
+            assert not p.requires_grad
+
+    def test_more_trainable_than_partial(self, vae_config):
+        """Asymmetric should train more params than partial with 0 blocks."""
+        vae_partial = AutoencoderKL(**vae_config)
+        prepare_vae_for_training(
+            vae_partial, in_channels=1, out_channels=1,
+            trainable_encoder_blocks=0, trainable_decoder_blocks=0,
+        )
+        trainable_partial = sum(
+            p.numel() for p in vae_partial.parameters() if p.requires_grad
+        )
+
+        vae_asym = AutoencoderKL(**vae_config)
+        prepare_vae_for_training(
+            vae_asym, in_channels=1, out_channels=1, asymmetric=True,
+        )
+        trainable_asym = sum(
+            p.numel() for p in vae_asym.parameters() if p.requires_grad
+        )
+        assert trainable_asym > trainable_partial
+
+    def test_fewer_trainable_than_full(self, vae_config):
+        """Asymmetric should train fewer params than full fine-tuning."""
+        vae_full = AutoencoderKL(**vae_config)
+        prepare_vae_for_training(
+            vae_full, in_channels=1, out_channels=1, train_all_params=True,
+        )
+        trainable_full = sum(
+            p.numel() for p in vae_full.parameters() if p.requires_grad
+        )
+
+        vae_asym = AutoencoderKL(**vae_config)
+        prepare_vae_for_training(
+            vae_asym, in_channels=1, out_channels=1, asymmetric=True,
+        )
+        trainable_asym = sum(
+            p.numel() for p in vae_asym.parameters() if p.requires_grad
+        )
+        assert trainable_asym < trainable_full
+
+    def test_channels_replaced(self, vae):
+        """Conv replacement should still work with asymmetric mode."""
+        prepare_vae_for_training(vae, in_channels=1, out_channels=1, asymmetric=True)
+        assert vae.encoder.conv_in.in_channels == 1
+        assert vae.decoder.conv_out.out_channels == 1
+
+    def test_train_all_params_overrides_asymmetric(self, vae):
+        """train_all_params=True should take priority over asymmetric=True."""
+        prepare_vae_for_training(
+            vae, in_channels=1, out_channels=1,
+            train_all_params=True, asymmetric=True,
+        )
+        for p in vae.parameters():
+            assert p.requires_grad
