@@ -13,15 +13,21 @@
 \usepackage{adjustbox}
 \usepackage{tabularx}
 \usepackage{booktabs}
+\usepackage{multirow}
 
 
 \title{The Robustness of Natural Image Priors in Remote Sensing: A Zero-Shot VAE Study}
 
 \author{
-Zhenyuan Chen\thanks{bili\_sakura@zju.edu.cn} \\
-Feng Zhang\thanks{zfcarnation@zju.edu.cn} \\
-Zhejiang University \\
-School of Earth Sciences
+Zhenyuan Chen\\
+Zhejiang University\\
+School of Earth Sciences\\
+\texttt{bili\_sakura@zju.edu.cn}
+\And
+Feng Zhang\\
+Zhejiang University\\
+School of Earth Sciences\\
+\texttt{zfcarnation@zju.edu.cn}
 }
 
 % The \author macro works with any number of authors. There are two commands
@@ -76,13 +82,16 @@ In this study, we evaluate several state-of-the-art VAE architectures in a zero-
 \cmidrule(lr){1-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8} \cmidrule(lr){9-10} \cmidrule(lr){11-12}
  & & & & \bf RESISC45 & \bf AID & \bf RESISC45 & \bf AID & \bf RESISC45 & \bf AID & \bf RESISC45 & \bf AID \\
 \midrule
-SD21-VAE & 894.91 & 8 & 4 & 25.71 & 26.66 & 0.672 & 0.709 & 0.095 & 0.094 & 4.13 & 3.08 \\
-SDXL-VAE & 894.91 & 8 & 4 & 25.83 & 26.80 & 0.692 & 0.726 & 0.098 & 0.098 & 4.98 & 3.11 \\
-SD35-VAE & 895.25 & 8 & 16 & 29.71 & 30.72 & 0.862 & 0.876 & 0.035 & 0.037 & 1.11 & 0.69 \\
-FLUX1-VAE & 895.25 & 8 & 16 & \underline{33.30} & \underline{33.63} & \underline{0.923} & \underline{0.918} & \underline{0.022} & \underline{0.025} & \textbf{0.38} & \textbf{0.26} \\
-FLUX2-VAE & 895.71 & 8 & 32 & \textbf{33.42} & \textbf{34.46} & \textbf{0.925} & \textbf{0.926} & \textbf{0.021} & \textbf{0.022} & \underline{0.46} & \underline{0.37} \\
 SANA-VAE & 846.76 & 32 & 32 & 23.36 & 24.72 & 0.558 & 0.606 & 0.124 & 0.123 & 8.69 & 5.01 \\
-Qwen-VAE & 1143.88 & 8 & 16 & 30.38 & 31.46 & 0.874 & 0.889 & 0.080 & 0.077 & 9.51 & 0.42 \\
+\cmidrule(lr){3-4}
+SD21-VAE & 894.91 & \multirow[c]{6}{*}{8} & \multirow[c]{2}{*}{4} & 25.71 & 26.66 & 0.672 & 0.709 & 0.095 & 0.094 & 4.13 & 3.08 \\
+SDXL-VAE & 894.91 &  &  & 25.83 & 26.80 & 0.692 & 0.726 & 0.098 & 0.098 & 4.98 & 3.11 \\
+\cmidrule(lr){4-4}
+SD35-VAE & 895.25 &  & \multirow[c]{3}{*}{16} & 29.71 & 30.72 & 0.862 & 0.876 & 0.035 & 0.037 & 1.11 & 0.69 \\
+FLUX1-VAE & 895.25 &  &  & \underline{33.30} & \underline{33.63} & \underline{0.923} & \underline{0.918} & \underline{0.022} & \underline{0.025} & \textbf{0.38} & \textbf{0.26} \\
+Qwen-VAE & 1143.88 &  &  & 30.38 & 31.46 & 0.874 & 0.889 & 0.080 & 0.077 & 9.51 & 0.42 \\
+\cmidrule(lr){4-4}
+FLUX2-VAE & 895.71 &  & 32 & \textbf{33.42} & \textbf{34.46} & \textbf{0.925} & \textbf{0.926} & \textbf{0.021} & \textbf{0.022} & \underline{0.46} & \underline{0.37} \\
 \bottomrule
 \end{tabular}%
 }
@@ -99,13 +108,16 @@ Qwen-VAE & 1143.88 & 8 & 16 & 30.38 & 31.46 & 0.874 & 0.889 & 0.080 & 0.077 & 9.
 \bf Model & \bf GFLOPs & \bf Spatial Comp. Ratio & \bf Latent Ch. & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ & \bf LPIPS$\downarrow$ & \bf FID$\downarrow$ & \bf CMMD$\downarrow$ \\
 \cmidrule(lr){1-4} \cmidrule(lr){5-9}
 \midrule
-SD21-VAE & 894.91 & 8 & 4 & 25.81 & 0.688 & 0.082 & 16.43 & 0.0172 \\
-SDXL-VAE & 894.91 & 8 & 4 & 25.92 & 0.705 & 0.084 & 15.97 & 0.0203 \\
-SD35-VAE & 895.25 & 8 & 16 & 30.06 & 0.858 & 0.030 & 6.85 & 0.0001 \\
-FLUX1-VAE & 895.25 & 8 & 16 & \underline{31.73} & \underline{0.899} & \underline{0.020} & \textbf{5.19} & 0.0010 \\
-FLUX2-VAE & 895.71 & 8 & 32 & \textbf{32.16} & \textbf{0.901} & \textbf{0.019} & \underline{4.23} & \textbf{0.0001} \\
 SANA-VAE & 846.76 & 32 & 32 & 22.33 & 0.564 & 0.112 & 28.64 & 0.0002 \\
-Qwen-VAE & 1143.88 & 8 & 16 & 30.76 & 0.873 & 0.064 & 15.83 & 0.0106 \\
+\cmidrule(lr){3-4}
+SD21-VAE & 894.91 & \multirow[c]{6}{*}{8} & \multirow[c]{2}{*}{4} & 25.81 & 0.688 & 0.082 & 16.43 & 0.0172 \\
+SDXL-VAE & 894.91 &  &  & 25.92 & 0.705 & 0.084 & 15.97 & 0.0203 \\
+\cmidrule(lr){4-4}
+SD35-VAE & 895.25 &  & \multirow[c]{3}{*}{16} & 30.06 & 0.858 & 0.030 & 6.85 & 0.0001 \\
+FLUX1-VAE & 895.25 &  &  & \underline{31.73} & \underline{0.899} & \underline{0.020} & \textbf{5.19} & 0.0010 \\
+Qwen-VAE & 1143.88 &  &  & 30.76 & 0.873 & 0.064 & 15.83 & 0.0106 \\
+\cmidrule(lr){4-4}
+FLUX2-VAE & 895.71 &  & 32 & \textbf{32.16} & \textbf{0.901} & \textbf{0.019} & \underline{4.23} & \textbf{0.0001} \\
 \bottomrule
 \end{tabular}%
 }
@@ -121,40 +133,45 @@ We evaluate the performance of various VAE architectures on multiple benchmark r
 
 Reconstruction quality is assessed using standard metrics: Peak Signal-to-Noise Ratio (PSNR), Structural Similarity Index (SSIM)~\citep{wangImageQualityAssessment2004}, Learned Perceptual Image Patch Similarity (LPIPS)~\citep{zhangUnreasonableEffectivenessDeep2018}, and reconstruction Fréchet Inception Distance (FID)~\citep{heuselGANsTrainedTwo2017}. Table~\ref{tab:main_results} summarizes the quantitative performance across the RESISC45 and AID datasets, while Table~\ref{tab:ucmerced_results} presents results on the UCMerced dataset. We observe that while all pre-trained VAEs demonstrate remarkable zero-shot transfer capability, the FLUX and SDXL families consistently outperform older architectures in preserving fine-grained geospatial textures.
 
-We also run a quick reconstruction sanity check on 10 samples per modality using the single-channel expansion strategy in `scripts/quick_vae_reconstruction.py`, with averages summarized in Table~\ref{tab:quick_recon_results}.
+We also run a quick reconstruction sanity check on 10 samples per modality using the single-channel expansion strategy in \texttt{scripts/quick\_vae\_reconstruction.py}, with averages summarized in Table~\ref{tab:quick_recon_results}.
 
 \begin{table}[h]
 \centering
 \small
 \begin{tabular}{@{}llrccc@{}}
 \toprule
-\bf VAE & \bf Data & \bf Res & \bf MAE$\downarrow$ & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ \\
+\bf Data & \bf VAE & \bf Res & \bf MAE$\downarrow$ & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ \\
 \midrule
-SD21-VAE & IR & 1024 & 0.0213 & 28.49 & 0.7594 \\
-SD21-VAE & EO & 256 & 0.0102 & 34.69 & 0.9331 \\
-SD21-VAE & RGB & 1024 & 0.0299 & 25.64 & 0.6732 \\
-SD21-VAE & SAR & 1024 & 0.0057 & 42.67 & 0.9789 \\
-SD35-VAE & IR & 1024 & 0.0164 & 31.83 & 0.8858 \\
-SD35-VAE & EO & 256 & 0.0051 & 41.44 & 0.9810 \\
-SD35-VAE & RGB & 1024 & 0.0228 & 28.50 & 0.8221 \\
-SD35-VAE & SAR & 1024 & 0.0096 & 39.94 & 0.9823 \\
-FLUX2-VAE & IR & 1024 & 0.0091 & 36.80 & 0.9548 \\
-FLUX2-VAE & EO & 256 & 0.0042 & 43.83 & 0.9903 \\
-FLUX2-VAE & RGB & 1024 & 0.0145 & 32.76 & 0.9173 \\
-FLUX2-VAE & SAR & 1024 & 0.0057 & 43.83 & 0.9938 \\
+\multirow[c]{3}{*}{IR} & SD21-VAE & 1024 & 0.0213 & 28.49 & 0.7594 \\
+ & SD35-VAE & 1024 & 0.0164 & 31.83 & 0.8858 \\
+ & FLUX2-VAE & 1024 & \textbf{0.0091} & \textbf{36.80} & \textbf{0.9548} \\
+\cmidrule(lr){1-2}
+\multirow[c]{3}{*}{EO} & SD21-VAE & 256 & 0.0102 & 34.69 & 0.9331 \\
+ & SD35-VAE & 256 & 0.0051 & 41.44 & 0.9810 \\
+ & FLUX2-VAE & 256 & \textbf{0.0042} & \textbf{43.83} & \textbf{0.9903} \\
+\cmidrule(lr){1-2}
+\multirow[c]{3}{*}{RGB} & SD21-VAE & 1024 & 0.0299 & 25.64 & 0.6732 \\
+ & SD35-VAE & 1024 & 0.0228 & 28.50 & 0.8221 \\
+ & FLUX2-VAE & 1024 & \textbf{0.0145} & \textbf{32.76} & \textbf{0.9173} \\
+\cmidrule(lr){1-2}
+\multirow[c]{3}{*}{SAR} & SD21-VAE & 1024 & \textbf{0.0057} & 42.67 & 0.9789 \\
+ & SD35-VAE & 1024 & 0.0096 & 39.94 & 0.9823 \\
+ & FLUX2-VAE & 1024 & \textbf{0.0057} & \textbf{43.83} & \textbf{0.9938} \\
 \bottomrule
 \end{tabular}
-\caption{Quick reconstruction sanity check (10 images per modality) from `scripts/run_quick_vae_reconstruction.sh`, averaged over per-image MAE/PSNR/SSIM.}
+\caption{Quick reconstruction sanity check (10 images per modality) from \texttt{scripts/run\_quick\_vae\_reconstruction.sh}, averaged over per-image MAE/PSNR/SSIM.}
 \label{tab:quick_recon_results}
 \end{table}
 
+
 \begin{figure}[h]
-\begin{center}
-\fbox{\rule[-.5cm]{0cm}{4cm} \rule[-.5cm]{4cm}{0cm}}
-\end{center}
-\caption{Qualitative comparison of VAE reconstructions. From left to right: Original, SD21, SDXL, and FLUX.1 reconstructions.}
-\label{fig:main_comparison}
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/RESULT5samples.pdf}
+    \caption{Qualitative reconstructions from 5 random RESISC45 samples. Each column shows (left to right): Original, SD21-VAE, SDXL-VAE, SD35-VAE, FLUX1-VAE, SANA-VAE, FLUX2-VAE, and Qwen-VAE. No significant visual difference appears.}
+    \label{fig:main_comparison}
 \end{figure}
+
+
 
 \section{Insights}
 
