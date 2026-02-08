@@ -4,6 +4,7 @@ Supports RESISC45, AID, and UCMerced datasets.
 """
 
 import os
+import random
 import warnings
 from pathlib import Path
 from typing import Optional, Tuple, List
@@ -49,6 +50,56 @@ def get_inverse_transform() -> transforms.Compose:
     ])
 
 
+class MultiScaleCrop:
+    """Multi-Scale Crop augmentation for VAE training.
+
+    For large images (e.g., 1024px), randomly crops to one of several target
+    sizes.  Default: 256px with 80 % probability, 512px with 20 % probability.
+    Images smaller than all crop sizes are returned unchanged.
+    """
+
+    def __init__(
+        self,
+        crop_sizes: Tuple[int, ...] = (256, 512),
+        crop_probs: Tuple[float, ...] = (0.8, 0.2),
+    ):
+        if len(crop_sizes) != len(crop_probs):
+            raise ValueError("crop_sizes and crop_probs must have the same length")
+        self.crop_sizes = crop_sizes
+        self.crop_probs = crop_probs
+
+    def __call__(self, img: Image.Image) -> Image.Image:
+        w, h = img.size  # PIL: (width, height)
+        min_dim = min(w, h)
+
+        # Keep only crop sizes that fit within the image
+        valid = [(s, p) for s, p in zip(self.crop_sizes, self.crop_probs) if s <= min_dim]
+        if not valid:
+            return img
+
+        sizes, probs = zip(*valid)
+        crop_size = random.choices(sizes, weights=probs, k=1)[0]
+        return transforms.RandomCrop(crop_size)(img)
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"crop_sizes={self.crop_sizes}, crop_probs={self.crop_probs})"
+        )
+
+
+def get_multiscale_train_transform(
+    crop_sizes: Tuple[int, ...] = (256, 512),
+    crop_probs: Tuple[float, ...] = (0.8, 0.2),
+) -> transforms.Compose:
+    """Get training transform with multi-scale random crop augmentation."""
+    return transforms.Compose([
+        MultiScaleCrop(crop_sizes=crop_sizes, crop_probs=crop_probs),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+    ])
+
+
 def collate_variable_size(batch: List[Tuple]) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
     """Custom collate for variable-sized images. Pads to max size in batch."""
     images, labels, paths = zip(*batch)
@@ -83,10 +134,18 @@ class RSDataset(Dataset):
         transform: Optional[transforms.Compose] = None,
         classes: Optional[List[str]] = None,
         split_file: Optional[str] = None,
+        multi_scale_crop: bool = False,
+        crop_sizes: Tuple[int, ...] = (256, 512),
+        crop_probs: Tuple[float, ...] = (0.8, 0.2),
     ):
         self.root = self._resolve_path(root)
         self.image_size = image_size
-        self.transform = transform or get_transform(image_size)
+        if transform is not None:
+            self.transform = transform
+        elif multi_scale_crop:
+            self.transform = get_multiscale_train_transform(crop_sizes, crop_probs)
+        else:
+            self.transform = get_transform(image_size)
         
         # Load split file if provided
         split_filenames = self._load_split_file(split_file) if split_file else None

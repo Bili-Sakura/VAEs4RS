@@ -12,7 +12,7 @@ from .config import (
     CONFIG_PATH,
 )
 from .helpers import set_seed, save_tensor_as_image, get_device, print_gpu_memory
-from .datasets import load_dataset, RSDataset
+from .datasets import load_dataset, RSDataset, MultiScaleCrop, get_multiscale_train_transform
 
 __all__ = [
     "get_config",
@@ -28,4 +28,6 @@ __all__ = [
     "print_gpu_memory",
     "load_dataset",
     "RSDataset",
+    "MultiScaleCrop",
+    "get_multiscale_train_transform",
 ]
