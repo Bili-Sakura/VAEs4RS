@@ -131,6 +131,7 @@ def prepare_vae_for_training(
     trainable_encoder_blocks: int = 1,
     trainable_decoder_blocks: int = 1,
     train_all_params: bool = False,
+    asymmetric: bool = False,
 ) -> nn.Module:
     """Prepare a pre-trained VAE for fine-tuning.
 
@@ -146,16 +147,24 @@ def prepare_vae_for_training(
             architecture supports it.
         out_channels: Number of output channels (same conditions as above).
         trainable_encoder_blocks: Number of encoder down-blocks to unfreeze
-            (counting from the input side). Ignored when *train_all_params* is
-            True or the architecture does not support block-level freezing.
+            (counting from the input side). Ignored when *train_all_params* or
+            *asymmetric* is True or the architecture does not support
+            block-level freezing.
         trainable_decoder_blocks: Number of decoder up-blocks to unfreeze
             (counting from the output side). Same conditions as above.
         train_all_params: If True, all parameters are trainable (full fine-tuning).
+        asymmetric: If True, freeze the encoder and unfreeze the entire decoder
+            (all decoder parameters become trainable). The encoder's conv_in
+            is kept trainable for channel adaptation. Ignored when
+            *train_all_params* is True or the architecture does not support
+            block-level freezing.
 
     Steps for AutoencoderKL-family models:
         1. Replace encoder.conv_in for *in_channels* input (if needed).
         2. Replace decoder.conv_out for *out_channels* output (if needed).
         3. If *train_all_params*: unfreeze everything.
+           Elif *asymmetric*: freeze encoder, unfreeze entire decoder,
+           keep encoder.conv_in trainable.
            Otherwise: freeze all, then selectively unfreeze:
            - encoder.conv_in  (newly created)
            - first *trainable_encoder_blocks* encoder down-blocks
@@ -182,6 +191,19 @@ def prepare_vae_for_training(
     if train_all_params or not supports_block_freeze:
         # --- Full fine-tuning: all parameters trainable ---
         vae.requires_grad_(True)
+    elif asymmetric:
+        # --- Asymmetric fine-tuning (AutoencoderKL-family only) ---
+        # Freeze everything first, then unfreeze decoder + encoder.conv_in
+        vae.requires_grad_(False)
+
+        # Keep encoder.conv_in trainable (for channel adaptation)
+        if hasattr(vae, "encoder") and hasattr(vae.encoder, "conv_in"):
+            for p in vae.encoder.conv_in.parameters():
+                p.requires_grad = True
+
+        # Unfreeze the entire decoder
+        if hasattr(vae, "decoder"):
+            vae.decoder.requires_grad_(True)
     else:
         # --- Partial fine-tuning (AutoencoderKL-family only) ---
         # Freeze everything first

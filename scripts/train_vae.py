@@ -178,6 +178,7 @@ def main():
     trainable_enc = _get(cfg, "freeze", "trainable_encoder_blocks", default=1)
     trainable_dec = _get(cfg, "freeze", "trainable_decoder_blocks", default=1)
     train_all_params = _get(cfg, "freeze", "train_all_params", default=False)
+    asymmetric = _get(cfg, "freeze", "asymmetric", default=False)
 
     train_dir = _get(cfg, "data", "train_dir")
     val_dir = _get(cfg, "data", "val_dir")
@@ -208,8 +209,8 @@ def main():
     logger.info("Detected VAE architecture: %s", vae_class_name)
 
     logger.info(
-        "Preparing VAE for training (in=%d, out=%d, train_all_params=%s)",
-        in_channels, out_channels, train_all_params,
+        "Preparing VAE for training (in=%d, out=%d, train_all_params=%s, asymmetric=%s)",
+        in_channels, out_channels, train_all_params, asymmetric,
     )
     vae = prepare_vae_for_training(
         vae,
@@ -218,6 +219,7 @@ def main():
         trainable_encoder_blocks=trainable_enc,
         trainable_decoder_blocks=trainable_dec,
         train_all_params=train_all_params,
+        asymmetric=asymmetric,
     )
     trainable_count, total_count = log_trainable_summary(vae)
 
