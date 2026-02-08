@@ -54,7 +54,7 @@ class MultiScaleCrop:
     """Multi-Scale Crop augmentation for VAE training.
 
     For large images (e.g., 1024px), randomly crops to one of several target
-    sizes.  Default: 256px with 80 % probability, 512px with 20 % probability.
+    sizes.  Default: 256px with 80% probability, 512px with 20% probability.
     Images smaller than all crop sizes are returned unchanged.
     """
 
