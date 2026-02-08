@@ -27,7 +27,7 @@ freeze:
   # Required for AutoencoderDC; optional for AutoencoderKL-family
   train_all_params: false
   # Asymmetric fine-tuning: freeze the encoder and unfreeze the entire decoder.
-  # encoder.conv_in, decoder.conv_out, and decoder.conv_norm_out are always trainable.
+  # encoder.conv_in is kept trainable for channel adaptation.
   # Ignored when train_all_params is true or for AutoencoderDC.
   asymmetric: false
   # Number of encoder down_blocks to unfreeze, counting from the input side
