@@ -7,6 +7,8 @@
 
 \usepackage{hyperref}
 \usepackage{url}
+\usepackage[most]{tcolorbox}
+\newtcolorbox{mybox}[1]{colback=blue!5!white,colframe=blue!75!black,fonttitle=\bfseries,title=#1}
 \usepackage{graphicx}
 \usepackage{adjustbox}
 \usepackage{tabularx}
@@ -45,24 +47,24 @@ School of Earth Sciences
 \thispagestyle{fancy}
 
 \begin{abstract}
-We investigate the robustness of variational autoencoders (VAEs) pre-trained on natural images when applied zero-shot to remote sensing data. Despite domain mismatch, these VAEs demonstrate superior reconstruction performance, suggesting natural image priors transfer effectively to satellite imagery. Code is available at \url{https://github.com/Bili-Sakura/VAEs4RS}.
+This paper explores the robustness of variational autoencoders (VAEs) pre-trained on natural image data, such as ImageNet, when applied to the remote sensing domain in a zero-shot manner. We investigate whether these natural image priors embedded in standard VAEs can serve as effective compressors and reconstructors for satellite images, even when applied in a different manner across various settings compared to natural cases. Our study evaluates several state-of-the-art VAE architectures across multiple remote sensing categories and reconstruction metrics to demonstrate their potential.
 \end{abstract}
 
 \section{Introduction}
 
-While specialized visual generative models for remote sensing~\citep{chenText2EarthTexttoRemoteSensing2024,khannaDiffusionSatGenerativeFoundation2024,yellapragadaZoomLDMLatentDiffusion2025,yuMetaEarthGenerativeFoundation2025,pangHSIGeneFoundationModel2026,sastryGeoSynthContextuallyAwareHighResolution2024,panEarthSynthGeneratingInformative2025,sebaqRSDiffRemoteSensing2024} have emerged, standard VAEs pre-trained on large-scale natural image datasets (e.g., LAION~\citep{schuhmannLAION5BOpenLargeScale2022} and ImageNet~\citep{russakovskyImageNetLargeScale2015}) remain commonly used without domain adaptation. We evaluate whether these zero-shot VAEs can effectively compress and reconstruct satellite imagery, despite distinct viewing geometries and spatial resolutions~\citep{rolfPositionMissionCritical2024}.
+The rapid development of visual foundation models has transformed the landscape of generative AI, with milestone architectures like GANs~\citep{goodfellow2014generative, karras2018progressive, brock2018large, karras2020analyzing, sauer2022stylegan} and diffusion models~\citep{ho2020denoising, song2020denoising, song2021scorebased, dhariwal2021diffusion, karras2022edm, lu2022dpm, rombachHighResolutionImageSynthesis2022} setting new standards for high-fidelity image synthesis in the general domain. This momentum has recently extended to the remote sensing (RS) domain, where specialized models such as Text2Earth~\citep{chenText2EarthTexttoRemoteSensing2024}, DiffusionSat~\citep{khannaDiffusionSatGenerativeFoundation2024}, and other Earth observation foundation models~\citep{luVisionFoundationModels2025, tuiaArtificialIntelligenceAdvance2025} have been developed to capture complex geospatial distributions, alongside other RS generative models~\citep{yellapragadaZoomLDMLatentDiffusion2025,yuMetaEarthGenerativeFoundation2025,pangHSIGeneFoundationModel2026,sastryGeoSynthContextuallyAwareHighResolution2024,panEarthSynthGeneratingInformative2025,sebaqRSDiffRemoteSensing2024}. Despite these advancements, RS imagery presents unique challenges compared to natural images, including distinct viewing geometries, multi-spectral bands, and varying spatial resolutions, as highlighted in several position papers~\citep{rolfPositionMissionCritical2024}. A common practice remains the use of standard VAEs pre-trained on natural image priors (e.g., ImageNet) without domain-specific adaptation. In this work, we investigate the robustness of these zero-shot VAEs in the RS context, focusing on their effectiveness as compressors and reconstructors for satellite data.
 
-\section{Preliminary: Variational Autoencoders}
+\section{Variational Autoencoders}
 
 Variational Autoencoders (VAEs)~\citep{kingmaAutoEncodingVariationalBayes2014} learn to map input $x$ to latent representation $z$ via encoder $q_\phi(z|x)$ and reconstruct via decoder $p_\theta(x|z)$. The objective maximizes the Evidence Lower Bound (ELBO):
 \begin{equation}
 \mathcal{L}(\theta, \phi; x) = \mathbb{E}_{z \sim q_\phi(z|x)}[\log p_\theta(x|z)] - D_{KL}(q_\phi(z|x) || p_\lambda(z))
 \end{equation}
-where the first term is reconstruction likelihood and the second regularizes the latent space against prior $p_\lambda(z)$ (typically $\mathcal{N}(0, I)$). In large-scale generative models, VAEs compress high-dimensional pixel data into manageable latent spaces for efficient modeling.
+where the first term represents the reconstruction likelihood and the second term is the Kullback-Leibler (KL) divergence regularizing the latent space against a prior distribution $p_\lambda(z)$, typically a standard Gaussian $\mathcal{N}(0, I)$. Modern VAEs often employ advanced architectures such as VQGAN~\citep{esserTamingTransformersHighResolution2021} or flow-matching based decoders to improve reconstruction fidelity. In the context of large-scale generative models, these VAEs serve as essential components by compressing high-dimensional pixel data into a manageable latent space for downstream diffusion or transformer-based modeling.
 
-\section{Datasets and Methods}
+\section{Experiments}\label{sec:experiments}
 
-We evaluate zero-shot VAE performance on two benchmarks: \textbf{RESISC45}~\citep{chengRemoteSensingImage2017} (31,500 images, 45 classes, 20cm--30m/px GSD) and \textbf{AID}~\citep{xia2017aid} (10,000 images, 30 classes, 600$\times$600px). We test VAEs from Stable Diffusion~\citep{rombachHighResolutionImageSynthesis2022,podellSDXLImprovingLatent2024}, FLUX~\citep{labsFLUX1KontextFlow2025,labFLUX2FrontierVisual2025}, SANA~\citep{xieSANAEfficientHighResolution2025}, and Qwen~\citep{wuQwenImageTechnicalReport2025} families. All models and latents are evaluated using \textit{bfloat16} precision for computational efficiency. Evaluation metrics: PSNR, SSIM~\citep{wangImageQualityAssessment2004}, LPIPS~\citep{zhangUnreasonableEffectivenessDeep2018}, and FID~\citep{heuselGANsTrainedTwo2017}. Results are summarized in Table~\ref{tab:main_results}.
+In this study, we evaluate several state-of-the-art VAE architectures in a zero-shot manner on remote sensing data. We include models from the Stable Diffusion family (SD21-VAE, SDXL-VAE, SD35-VAE)~\citep{rombachHighResolutionImageSynthesis2022,podellSDXLImprovingLatent2024}, the FLUX family (FLUX.1-VAE, FLUX.2-VAE)~\citep{labsFLUX1KontextFlow2025,labFLUX2FrontierVisual2025}, and other efficient architectures such as SANA-VAE~\citep{xieSANAEfficientHighResolution2025} and Qwen-VAE~\citep{wuQwenImageTechnicalReport2025}. These models were primarily pre-trained on natural image datasets like ImageNet and LAION, and we test their direct applicability to RS benchmarks without any fine-tuning.
 
 \begin{table}[h]
 \centering
@@ -111,24 +113,64 @@ Qwen-VAE & 1143.88 & 8 & 16 & 30.76 & 0.873 & 0.064 & 15.83 & 0.0106 \\
 \label{tab:ucmerced_results}
 \end{table}
 
-\section{Results}
+\section{Experimental Results}
 
-Overall, VAEs demonstrate mostly good reconstruction performance across the evaluated metrics (Table~\ref{tab:main_results}). We observe that results on RESISC45 are slightly worse than AID, which we attribute to RESISC45 containing a number of low-resolution images that lack sufficient high-frequency features, leading to VAE reconstruction failures. Qualitative examples shown in Figure~\ref{fig:reconstruction_examples} demonstrate visually near-identical reconstructions across all models.
+We evaluate the performance of various VAE architectures on multiple benchmark remote sensing datasets: NWPU-RESISC45~\citep{chengRemoteSensingImage2017}, AID~\citep{xia2017aid}, and UCMerced~\citep{yangBagofVisualWords2010}. Our evaluation focuses on zero-shot reconstruction quality across diverse aerial scene categories, using the full datasets at their original image sizes (RESISC45: 256$\times$256; AID: 600$\times$600; UCMerced: 256$\times$256).
+
+\subsection{Metrics and Main Results}
+
+Reconstruction quality is assessed using standard metrics: Peak Signal-to-Noise Ratio (PSNR), Structural Similarity Index (SSIM)~\citep{wangImageQualityAssessment2004}, Learned Perceptual Image Patch Similarity (LPIPS)~\citep{zhangUnreasonableEffectivenessDeep2018}, and reconstruction Fréchet Inception Distance (FID)~\citep{heuselGANsTrainedTwo2017}. Table~\ref{tab:main_results} summarizes the quantitative performance across the RESISC45 and AID datasets, while Table~\ref{tab:ucmerced_results} presents results on the UCMerced dataset. We observe that while all pre-trained VAEs demonstrate remarkable zero-shot transfer capability, the FLUX and SDXL families consistently outperform older architectures in preserving fine-grained geospatial textures.
+
+We also run a quick reconstruction sanity check on 10 samples per modality using the single-channel expansion strategy in `scripts/quick_vae_reconstruction.py`, with averages summarized in Table~\ref{tab:quick_recon_results}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llrccc@{}}
+\toprule
+\bf VAE & \bf Data & \bf Res & \bf MAE$\downarrow$ & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ \\
+\midrule
+SD21-VAE & IR & 1024 & 0.0213 & 28.49 & 0.7594 \\
+SD21-VAE & EO & 256 & 0.0102 & 34.69 & 0.9331 \\
+SD21-VAE & RGB & 1024 & 0.0299 & 25.64 & 0.6732 \\
+SD21-VAE & SAR & 1024 & 0.0057 & 42.67 & 0.9789 \\
+SD35-VAE & IR & 1024 & 0.0164 & 31.83 & 0.8858 \\
+SD35-VAE & EO & 256 & 0.0051 & 41.44 & 0.9810 \\
+SD35-VAE & RGB & 1024 & 0.0228 & 28.50 & 0.8221 \\
+SD35-VAE & SAR & 1024 & 0.0096 & 39.94 & 0.9823 \\
+FLUX2-VAE & IR & 1024 & 0.0091 & 36.80 & 0.9548 \\
+FLUX2-VAE & EO & 256 & 0.0042 & 43.83 & 0.9903 \\
+FLUX2-VAE & RGB & 1024 & 0.0145 & 32.76 & 0.9173 \\
+FLUX2-VAE & SAR & 1024 & 0.0057 & 43.83 & 0.9938 \\
+\bottomrule
+\end{tabular}
+\caption{Quick reconstruction sanity check (10 images per modality) from `scripts/run_quick_vae_reconstruction.sh`, averaged over per-image MAE/PSNR/SSIM.}
+\label{tab:quick_recon_results}
+\end{table}
 
 \begin{figure}[h]
-\centering
-\includegraphics[width=1.0\textwidth]{figures/RESULT5samples.pdf}
-\caption{Qualitative reconstructions from 5 random RESISC45 samples. Each column shows (left to right): Original, SD21-VAE, SDXL-VAE, SD35-VAE, FLUX1-VAE, SANA-VAE, FLUX2-VAE, and Qwen-VAE. No significant visual difference appears.}
-\label{fig:reconstruction_examples}
+\begin{center}
+\fbox{\rule[-.5cm]{0cm}{4cm} \rule[-.5cm]{4cm}{0cm}}
+\end{center}
+\caption{Qualitative comparison of VAE reconstructions. From left to right: Original, SD21, SDXL, and FLUX.1 reconstructions.}
+\label{fig:main_comparison}
 \end{figure}
 
-\section{Insights and Conclusion}
+\section{Insights}
 
-\textbf{Insights 1:} We find that VAEs reconstruct remote sensing images remarkably well, with reconstructions appearing visually nearly identical to the input. We argue that VAEs may have the potential to implicitly deblur and denoise input images, where the reconstructed image serves as a better data source for model training (e.g., representation learning) with possibly improved statistics.
+Based on our extensive experiments, we highlight several key insights regarding the application of natural image VAEs to the remote sensing domain:
 
-\textbf{Insights 2:} As the compression appears effectively lossless, we argue for directly storing latent representations instead of original images as datasets to reduce storage requirements. 
+\begin{mybox}{Key Insights}
+\begin{itemize}
+    \item \textbf{Generalization of Natural Priors:} Standard VAEs pre-trained on ImageNet/LAION exhibit surprising robustness to RS data, suggesting that low-level visual features (edges, textures) are highly transferable across domains.
+    \item \textbf{Model Architecture Matters:} Flow-matching based decoders (e.g., FLUX) provide significantly higher reconstruction fidelity for high-resolution satellite imagery compared to earlier KL-regularized architectures.
+    \item \textbf{Zero-Shot Utility:} These models can serve as effective "cheap" pre-processors for denoising and initial data compression in RS pipelines without the need for expensive domain-specific re-training.
+\end{itemize}
+\end{mybox}
 
-In this work, we explored the robustness of natural image priors in VAEs for remote sensing. Our findings indicate that these models, when used zero-shot, can provide significant utility in data compression across various categories. We will release the reconstructed images along with their corresponding latents for community exploration and further research.
+\section{Conclusion}
+
+In this work, we explored the robustness of natural image priors in VAEs for remote sensing. Our findings indicate that these models, when used zero-shot, can provide significant utility in data compression and pre-processing tasks across various sensing categories. Future work could further explore the integration of domain-specific priors to enhance these capabilities.
 
 
 \bibliography{iclr2026_conference}

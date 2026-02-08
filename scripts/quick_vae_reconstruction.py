@@ -279,13 +279,13 @@ def build_argparser() -> argparse.ArgumentParser:
         "--output-dir",
         type=str,
         default=None,
-        help("Optional directory to write reconstructed outputs."),
+        help="Optional directory to write reconstructed outputs.",
     )
     parser.add_argument(
         "--max-images",
         type=int,
         default=None,
-        help("Optionally limit the number of images processed."),
+        help="Optionally limit the number of images processed.",
     )
     return parser
 
@@ -297,4 +297,11 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
 
 
 if __name__ == "__main__":
+    # cli
+    # python scripts/quick_vae_reconstruction.py \
+    #   --input-dir ./datasets/BiliSakura/MACIV-T-2025-Structure-Refined/test \
+    #   --vae-path ./models/BiliSakura/VAEs/SD21-VAE \
+    # --max-images 10 \
+    # --resolution 1024
     main()
+
