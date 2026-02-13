@@ -1,3 +1,12 @@
 [submodule "diffusers"]
 	path = diffusers
 	url = https://github.com/huggingface/diffusers.git
+
+[submodule "MoVQGAN"]
+	path = MoVQGAN
+	url = https://github.com/ai-forever/MoVQGAN
+
+[submodule "SEED-Voken"]
+	path = SEED-Voken
+	url = https://github.com/TencentARC/SEED-Voken
+	

@@ -133,36 +133,104 @@ We evaluate the performance of various VAE architectures on multiple benchmark r
 
 Reconstruction quality is assessed using standard metrics: Peak Signal-to-Noise Ratio (PSNR), Structural Similarity Index (SSIM)~\citep{wangImageQualityAssessment2004}, Learned Perceptual Image Patch Similarity (LPIPS)~\citep{zhangUnreasonableEffectivenessDeep2018}, and reconstruction Fréchet Inception Distance (FID)~\citep{heuselGANsTrainedTwo2017}. Table~\ref{tab:main_results} summarizes the quantitative performance across the RESISC45 and AID datasets, while Table~\ref{tab:ucmerced_results} presents results on the UCMerced dataset. We observe that while all pre-trained VAEs demonstrate remarkable zero-shot transfer capability, the FLUX and SDXL families consistently outperform older architectures in preserving fine-grained geospatial textures.
 
-We also run a quick reconstruction sanity check on 10 samples per modality using the single-channel expansion strategy in \texttt{scripts/quick\_vae\_reconstruction.py}, with averages summarized in Table~\ref{tab:quick_recon_results}.
+We also run a quick reconstruction sanity check on 10 samples per modality using the single-channel expansion strategy in \texttt{scripts/quick\_vae\_reconstruction.py}, with results visualized in Figures~\ref{fig:quick_recon_psnr}--\ref{fig:quick_recon_ssim}.
 
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}llrccc@{}}
-\toprule
-\bf Data & \bf VAE & \bf Res & \bf MAE$\downarrow$ & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ \\
-\midrule
-\multirow[c]{3}{*}{IR} & SD21-VAE & 1024 & 0.0213 & 28.49 & 0.7594 \\
- & SD35-VAE & 1024 & 0.0164 & 31.83 & 0.8858 \\
- & FLUX2-VAE & 1024 & \textbf{0.0091} & \textbf{36.80} & \textbf{0.9548} \\
-\cmidrule(lr){1-2}
-\multirow[c]{3}{*}{EO} & SD21-VAE & 256 & 0.0102 & 34.69 & 0.9331 \\
- & SD35-VAE & 256 & 0.0051 & 41.44 & 0.9810 \\
- & FLUX2-VAE & 256 & \textbf{0.0042} & \textbf{43.83} & \textbf{0.9903} \\
-\cmidrule(lr){1-2}
-\multirow[c]{3}{*}{RGB} & SD21-VAE & 1024 & 0.0299 & 25.64 & 0.6732 \\
- & SD35-VAE & 1024 & 0.0228 & 28.50 & 0.8221 \\
- & FLUX2-VAE & 1024 & \textbf{0.0145} & \textbf{32.76} & \textbf{0.9173} \\
-\cmidrule(lr){1-2}
-\multirow[c]{3}{*}{SAR} & SD21-VAE & 1024 & \textbf{0.0057} & 42.67 & 0.9789 \\
- & SD35-VAE & 1024 & 0.0096 & 39.94 & 0.9823 \\
- & FLUX2-VAE & 1024 & \textbf{0.0057} & \textbf{43.83} & \textbf{0.9938} \\
-\bottomrule
-\end{tabular}
-\caption{Quick reconstruction sanity check (10 images per modality) from \texttt{scripts/run\_quick\_vae\_reconstruction.sh}, averaged over per-image MAE/PSNR/SSIM.}
-\label{tab:quick_recon_results}
-\end{table}
+% \begin{table}[h]
+% \centering
+% \small
+% \begin{tabular}{@{}llccc@{}}
+% \toprule
+% \bf Data & \bf VAE & \bf MAE$\downarrow$ & \bf PSNR$\uparrow$ & \bf SSIM$\uparrow$ \\
+% \midrule
+% \multirow[c]{15}{*}{IR} & SD21-VAE & 0.0213 & 28.49 & 0.7594 \\
+%  & SDXL-VAE & 0.0208 & 28.68 & 0.7722 \\
+%  & SD35-VAE & 0.0164 & 31.83 & 0.8858 \\
+%  & FLUX1-VAE & 0.0148 & 33.53 & 0.9266 \\
+%  & FLUX2-VAE & \textbf{0.0091} & \textbf{36.80} & \textbf{0.9548} \\
+%  & SANA-VAE & 0.0256 & 26.73 & 0.7027 \\
+%  & Qwen-VAE & 0.0130 & 32.67 & 0.8938 \\
+%  & MOVQGAN-67M & 0.0218 & 28.50 & 0.7720 \\
+%  & MOVQGAN-102M & 0.0213 & 28.82 & 0.7825 \\
+%  & MOVQGAN-270M & 0.0222 & 28.81 & 0.7819 \\
+%  & VQDIFFUSION-VQVAE & 0.0256 & 27.40 & 0.7754 \\
+%  & IBQ-VQVAE-1024 & 0.0348 & 25.25 & 0.6218 \\
+%  & IBQ-VQVAE-8192 & 0.0295 & 26.39 & 0.6836 \\
+%  & IBQ-VQVAE-16384 & 0.0269 & 26.75 & 0.6927 \\
+%  & IBQ-VQVAE-262144 & 0.0299 & 26.96 & 0.7089 \\
+% \cmidrule(lr){1-2}
+% \multirow[c]{15}{*}{EO} & SD21-VAE & 0.0102 & 34.69 & 0.9331 \\
+%  & SDXL-VAE & 0.0093 & 35.30 & 0.9428 \\
+%  & SD35-VAE & 0.0051 & 41.45 & 0.9810 \\
+%  & FLUX1-VAE & \textbf{0.0032} & \textbf{44.64} & \textbf{0.9930} \\
+%  & FLUX2-VAE & 0.0042 & 43.83 & 0.9903 \\
+%  & SANA-VAE & 0.0146 & 31.43 & 0.8885 \\
+%  & Qwen-VAE & 0.0049 & 42.17 & 0.9833 \\
+%  & MOVQGAN-67M & 0.0114 & 34.64 & 0.9333 \\
+%  & MOVQGAN-102M & 0.0106 & 35.26 & 0.9404 \\
+%  & MOVQGAN-270M & 0.0107 & 35.31 & 0.9413 \\
+%  & VQDIFFUSION-VQVAE & 0.0147 & 31.56 & 0.9161 \\
+%  & IBQ-VQVAE-1024 & 0.0279 & 26.09 & 0.7905 \\
+%  & IBQ-VQVAE-8192 & 0.0239 & 27.36 & 0.8217 \\
+%  & IBQ-VQVAE-16384 & 0.0237 & 27.56 & 0.8291 \\
+%  & IBQ-VQVAE-262144 & 0.0209 & 28.33 & 0.8559 \\
+% \cmidrule(lr){1-2}
+% \multirow[c]{15}{*}{RGB} & SD21-VAE & 0.0299 & 25.64 & 0.6732 \\
+%  & SDXL-VAE & 0.0291 & 25.73 & 0.6880 \\
+%  & SD35-VAE & 0.0228 & 28.50 & 0.8221 \\
+%  & FLUX1-VAE & 0.0196 & 30.21 & 0.8753 \\
+%  & FLUX2-VAE & \textbf{0.0145} & \textbf{32.76} & \textbf{0.9173} \\
+%  & SANA-VAE & 0.0360 & 23.94 & 0.6047 \\
+%  & Qwen-VAE & 0.0209 & 28.45 & 0.8231 \\
+%  & MOVQGAN-67M & 0.0308 & 25.62 & 0.6863 \\
+%  & MOVQGAN-102M & 0.0299 & 25.89 & 0.6980 \\
+%  & MOVQGAN-270M & 0.0303 & 25.96 & 0.6975 \\
+%  & VQDIFFUSION-VQVAE & 0.0350 & 24.38 & 0.6949 \\
+%  & IBQ-VQVAE-1024 & 0.0442 & 22.93 & 0.5285 \\
+%  & IBQ-VQVAE-8192 & 0.0386 & 23.80 & 0.5828 \\
+%  & IBQ-VQVAE-16384 & 0.0376 & 24.02 & 0.5920 \\
+%  & IBQ-VQVAE-262144 & 0.0385 & 24.35 & 0.6126 \\
+% \cmidrule(lr){1-2}
+% \multirow[c]{15}{*}{SAR} & SD21-VAE & 0.0057 & 42.68 & 0.9789 \\
+%  & SDXL-VAE & 0.0063 & 42.10 & 0.9778 \\
+%  & SD35-VAE & 0.0095 & 39.95 & 0.9823 \\
+%  & FLUX1-VAE & 0.0087 & 40.83 & 0.9904 \\
+%  & FLUX2-VAE & 0.0057 & 43.84 & 0.9938 \\
+%  & SANA-VAE & 0.0094 & 38.27 & 0.9419 \\
+%  & Qwen-VAE & \textbf{0.0022} & \textbf{51.04} & \textbf{0.9967} \\
+%  & MOVQGAN-67M & 0.0084 & 39.56 & 0.9709 \\
+%  & MOVQGAN-102M & 0.0077 & 40.17 & 0.9758 \\
+%  & MOVQGAN-270M & 0.0074 & 40.57 & 0.9748 \\
+%  & VQDIFFUSION-VQVAE & 0.0175 & 33.28 & 0.9346 \\
+%  & IBQ-VQVAE-1024 & 0.0289 & 28.38 & 0.7957 \\
+%  & IBQ-VQVAE-8192 & 0.0196 & 31.97 & 0.8851 \\
+%  & IBQ-VQVAE-16384 & 0.0179 & 32.69 & 0.8915 \\
+%  & IBQ-VQVAE-262144 & 0.0245 & 30.47 & 0.8855 \\
+% \bottomrule
+% \end{tabular}
+% \caption{Quick reconstruction sanity check (10 images per modality) from \texttt{scripts/run\_quick\_vae\_reconstruction.sh}, averaged over per-image MAE/PSNR/SSIM.}
+% \label{tab:quick_recon_results}
+% \end{table}
 
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/quick_recon_psnr.pdf}
+    \caption{Quick reconstruction: PSNR by modality (10 images each). VAEs ordered best$\to$worst by average rank; color indicates performance (green=best, red=worst).}
+    \label{fig:quick_recon_psnr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/quick_recon_mae.pdf}
+    \caption{Quick reconstruction: MAE by modality (10 images each). VAEs ordered best$\to$worst; color indicates performance (green=best, red=worst).}
+    \label{fig:quick_recon_mae}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/quick_recon_ssim.pdf}
+    \caption{Quick reconstruction: SSIM by modality (10 images each). VAEs ordered best$\to$worst; color indicates performance (green=best, red=worst).}
+    \label{fig:quick_recon_ssim}
+\end{figure}
 
 \begin{figure}[h]
     \centering

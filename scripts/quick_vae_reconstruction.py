@@ -17,7 +17,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
-from diffusers import AutoencoderKL, AutoencoderDC, AutoencoderKLFlux2, AutoencoderKLQwenImage
+from diffusers import AutoencoderKL, AutoencoderDC, AutoencoderKLFlux2, AutoencoderKLQwenImage, VQModel
 from PIL import Image
 
 try:
@@ -36,6 +36,7 @@ _VAE_CLASSES = {
     "AutoencoderDC": AutoencoderDC,
     "AutoencoderKLFlux2": AutoencoderKLFlux2,
     "AutoencoderKLQwenImage": AutoencoderKLQwenImage,
+    "VQModel": VQModel,
 }
 
 
@@ -51,7 +52,9 @@ def _normalize_image_array(arr: np.ndarray) -> np.ndarray:
 def load_image_to_three_channels(
     path: Path, resolution: int, device: torch.device
 ) -> Tuple[torch.Tensor, int]:
-    """Load an image, resize, and expand to three channels for the VAE.
+    """Load an image, resize (or keep original), and expand to three channels for the VAE.
+
+    When resolution is 0, uses the original image dimensions (no resize).
 
     Returns
     -------
@@ -61,9 +64,8 @@ def load_image_to_three_channels(
         Number of channels in the source image before expansion.
     """
     img = Image.open(path)
-    if resolution <= 0:
-        raise ValueError("resolution must be positive when provided")
-    img = img.resize((resolution, resolution), _RESAMPLING.BILINEAR)
+    if resolution > 0:
+        img = img.resize((resolution, resolution), _RESAMPLING.BILINEAR)
     arr = np.array(img, dtype=np.float32)
     arr = _normalize_image_array(arr)
 
@@ -192,13 +194,17 @@ def run(args: argparse.Namespace) -> None:
                 latents = encoded.latent_dist.mean
             elif hasattr(encoded, "latent"):
                 latents = encoded.latent
+            elif hasattr(encoded, "latents"):
+                latents = encoded.latents
             else:
                 latents = encoded
-            latents = latents * scaling_factor
+            if vae_class_name != "VQModel":
+                latents = latents * scaling_factor
 
             if vae_class_name == "AutoencoderKLQwenImage" and latents.dim() == 4:
                 latents = latents.unsqueeze(2)
-            decoded = vae.decode(latents / scaling_factor)
+            decode_input = latents / scaling_factor if vae_class_name != "VQModel" else latents
+            decoded = vae.decode(decode_input)
             if hasattr(decoded, "sample"):
                 decoded = decoded.sample
             if vae_class_name == "AutoencoderKLQwenImage" and decoded.dim() == 5:
@@ -267,7 +273,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--resolution",
         type=int,
         default=512,
-        help="Resize resolution fed to the VAE (square).",
+        help="Resize resolution fed to the VAE (square). Use 0 for original image resolution.",
     )
     parser.add_argument(
         "--extensions",
@@ -301,7 +307,10 @@ if __name__ == "__main__":
     # python scripts/quick_vae_reconstruction.py \
     #   --input-dir ./datasets/BiliSakura/MACIV-T-2025-Structure-Refined/test \
     #   --vae-path ./models/BiliSakura/VAEs/SD21-VAE \
-    # --max-images 10 \
-    # --resolution 1024
+    #   --max-images 10 \
+    #   --resolution 1024
+    # VQModel (VQ-Diffusion, IBQ-VQVAE, MOVQGAN, etc.):
+    #   --vae-path ./models/BiliSakura/VAEs/VQDIFFUSION-VQVAE --resolution 256
+    #   --vae-path ./models/BiliSakura/VAEs/IBQ-VQVAE-8192 --resolution 256
     main()
 
