@@ -53,7 +53,7 @@ School of Earth Sciences\\
 \thispagestyle{fancy}
 
 \begin{abstract}
-This paper explores the robustness of variational autoencoders (VAEs) pre-trained on natural image data, such as ImageNet, when applied to the remote sensing domain in a zero-shot manner. We investigate whether these natural image priors embedded in standard VAEs can serve as effective compressors and reconstructors for satellite images, even when applied in a different manner across various settings compared to natural cases. Our study evaluates several state-of-the-art VAE architectures across multiple remote sensing categories and reconstruction metrics to demonstrate their potential.
+This paper explores the robustness of variational autoencoders (VAEs) pre-trained on natural image data, such as ImageNet, when applied to the remote sensing domain in a zero-shot manner. We investigate whether these natural image priors embedded in standard VAEs can serve as effective compressors and reconstructors for satellite images, even when applied in a different manner across various settings compared to natural cases. Our study evaluates several state-of-the-art VAE architectures across multiple remote sensing categories and reconstruction metrics to demonstrate their potential. See code at \url{https://github.com/Bili-Sakura/VAEs4RS}.
 \end{abstract}
 
 \section{Introduction}
@@ -131,9 +131,7 @@ We evaluate the performance of various VAE architectures on multiple benchmark r
 
 \subsection{Metrics and Main Results}
 
-Reconstruction quality is assessed using standard metrics: Peak Signal-to-Noise Ratio (PSNR), Structural Similarity Index (SSIM)~\citep{wangImageQualityAssessment2004}, Learned Perceptual Image Patch Similarity (LPIPS)~\citep{zhangUnreasonableEffectivenessDeep2018}, and reconstruction Fréchet Inception Distance (FID)~\citep{heuselGANsTrainedTwo2017}. Table~\ref{tab:main_results} summarizes the quantitative performance across the RESISC45 and AID datasets, while Table~\ref{tab:ucmerced_results} presents results on the UCMerced dataset. We observe that while all pre-trained VAEs demonstrate remarkable zero-shot transfer capability, the FLUX and SDXL families consistently outperform older architectures in preserving fine-grained geospatial textures.
-
-We also run a quick reconstruction sanity check on 10 samples per modality using the single-channel expansion strategy in \texttt{scripts/quick\_vae\_reconstruction.py}, with results visualized in Figures~\ref{fig:quick_recon_psnr}--\ref{fig:quick_recon_ssim}.
+Reconstruction quality is assessed using standard metrics: Peak Signal-to-Noise Ratio (PSNR), Structural Similarity Index (SSIM)~\citep{wangImageQualityAssessment2004}, Learned Perceptual Image Patch Similarity (LPIPS)~\citep{zhangUnreasonableEffectivenessDeep2018}, and reconstruction Fréchet Inception Distance (FID)~\citep{heuselGANsTrainedTwo2017}. Table~\ref{tab:main_results} summarizes the quantitative performance across the RESISC45 and AID datasets, while Table~\ref{tab:ucmerced_results} presents results on the UCMerced dataset. See Appendix~\ref{app:maciv} for experiments on the MACIV-T-2025 dataset.
 
 % \begin{table}[h]
 % \centering
@@ -207,30 +205,9 @@ We also run a quick reconstruction sanity check on 10 samples per modality using
 %  & IBQ-VQVAE-262144 & 0.0245 & 30.47 & 0.8855 \\
 % \bottomrule
 % \end{tabular}
-% \caption{Quick reconstruction sanity check (10 images per modality) from \texttt{scripts/run\_quick\_vae\_reconstruction.sh}, averaged over per-image MAE/PSNR/SSIM.}
+% \caption{Reconstruction metrics by modality on MACIV-T-2025, averaged over per-image MAE/PSNR/SSIM.}
 % \label{tab:quick_recon_results}
 % \end{table}
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=1.0\textwidth]{figures/quick_recon_psnr.pdf}
-    \caption{Quick reconstruction: PSNR by modality (10 images each). VAEs ordered best$\to$worst by average rank; color indicates performance (green=best, red=worst).}
-    \label{fig:quick_recon_psnr}
-\end{figure}
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=1.0\textwidth]{figures/quick_recon_mae.pdf}
-    \caption{Quick reconstruction: MAE by modality (10 images each). VAEs ordered best$\to$worst; color indicates performance (green=best, red=worst).}
-    \label{fig:quick_recon_mae}
-\end{figure}
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=1.0\textwidth]{figures/quick_recon_ssim.pdf}
-    \caption{Quick reconstruction: SSIM by modality (10 images each). VAEs ordered best$\to$worst; color indicates performance (green=best, red=worst).}
-    \label{fig:quick_recon_ssim}
-\end{figure}
 
 \begin{figure}[h]
     \centering
@@ -245,25 +222,47 @@ We also run a quick reconstruction sanity check on 10 samples per modality using
 
 Based on our extensive experiments, we highlight several key insights regarding the application of natural image VAEs to the remote sensing domain:
 
-\begin{mybox}{Key Insights}
-\begin{itemize}
-    \item \textbf{Generalization of Natural Priors:} Standard VAEs pre-trained on ImageNet/LAION exhibit surprising robustness to RS data, suggesting that low-level visual features (edges, textures) are highly transferable across domains.
-    \item \textbf{Model Architecture Matters:} Flow-matching based decoders (e.g., FLUX) provide significantly higher reconstruction fidelity for high-resolution satellite imagery compared to earlier KL-regularized architectures.
-    \item \textbf{Zero-Shot Utility:} These models can serve as effective "cheap" pre-processors for denoising and initial data compression in RS pipelines without the need for expensive domain-specific re-training.
-\end{itemize}
+\begin{mybox}{Insight 1}
+We find that VAEs reconstruct remote sensing images remarkably well, with reconstructions appearing visually nearly identical to the input. We argue that VAEs may have the potential to implicitly deblur and denoise input images, where the reconstructed image serves as a better data source for model training (e.g., representation learning) with possibly improved statistics.
+\end{mybox}
+
+\begin{mybox}{Insight 2}
+As the compression appears effectively lossless, we argue for directly storing latent representations instead of original images as datasets to reduce storage requirements.
 \end{mybox}
 
 \section{Conclusion}
 
-In this work, we explored the robustness of natural image priors in VAEs for remote sensing. Our findings indicate that these models, when used zero-shot, can provide significant utility in data compression and pre-processing tasks across various sensing categories. Future work could further explore the integration of domain-specific priors to enhance these capabilities.
+In this work, we explored the robustness of natural image priors in VAEs for remote sensing. Our findings indicate that these models, when used zero-shot, can provide significant utility in data compression across various categories. We will release the reconstructed images along with their corresponding latents for community exploration and further research (\url{https://huggingface.co/datasets/BiliSakura/RS-Dataset-Latents}).
 
 
 \bibliography{iclr2026_conference}
 \bibliographystyle{iclr2026_conference}
 
-% \newpage
-% \appendix
-% \section{Appendix}
-% If you choose to include an appendix, please submit it as a separate PDF file.
+\newpage
+\appendix
+\section{Experiments on MACIV-T-2025}\label{app:maciv}
+
+We additionally evaluate reconstruction quality on the MACIV-T-2025 dataset\footnote{Dataset: \url{https://huggingface.co/datasets/BiliSakura/MACIV-T-2025}. Challenge: \url{https://www.codabench.org/competitions/12566/}.}, derived from the 4th Multi-modal Aerial View Image Challenge Translation Track (PBVS 2026), which spans multiple modalities including SAR, infrared, and optical imagery. Results across modalities are shown in Figures~\ref{fig:quick_recon_psnr}--\ref{fig:quick_recon_ssim}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/quick_recon_psnr.pdf}
+    \caption{Reconstruction PSNR by modality on the MACIV-T-2025 dataset (4th Multi-modal Aerial View Image Challenge Translation Track, PBVS 2026). VAEs ordered by average rank; color indicates relative performance.}
+    \label{fig:quick_recon_psnr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/quick_recon_mae.pdf}
+    \caption{Reconstruction MAE by modality on the MACIV-T-2025 dataset (4th Multi-modal Aerial View Image Challenge Translation Track, PBVS 2026). VAEs ordered by average rank; color indicates relative performance.}
+    \label{fig:quick_recon_mae}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{figures/quick_recon_ssim.pdf}
+    \caption{Reconstruction SSIM by modality on the MACIV-T-2025 dataset (4th Multi-modal Aerial View Image Challenge Translation Track, PBVS 2026). VAEs ordered by average rank; color indicates relative performance.}
+    \label{fig:quick_recon_ssim}
+\end{figure}
 
 \end{document}
