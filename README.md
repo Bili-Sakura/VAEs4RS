@@ -2,6 +2,9 @@
 
 **The Robustness of Natural Image Priors in Remote Sensing: A Zero-Shot VAE Study**
 
+Accepted at the **ICLR 2026 Machine Learning for Remote Sensing (ML4RS) Workshop** (Tiny Paper Track).  
+OpenReview: https://openreview.net/forum?id=63yoOFB24h
+
 Are pre-trained VAEs good zero-shot remote sensing image reconstructors?
 
 This repository evaluates variational autoencoders (VAEs) pre-trained on natural image datasets when applied to remote sensing data in a zero-shot manner.
@@ -171,9 +174,11 @@ streamlit run scripts/streamlit_app.py
 If you find this work useful, please cite:
 
 ```bibtex
-@article{chen2026robustness,
+@inproceedings{chen2026robustness,
   author = {Zhenyuan Chen and Feng Zhang},
   title = {THE ROBUSTNESS OF NATURAL IMAGE PRIORS IN REMOTE SENSING: A ZERO-SHOT VAE STUDY},
-  year = {2026}
+  booktitle = {ICLR 2026 Machine Learning for Remote Sensing (ML4RS) Workshop},
+  year = {2026},
+  url = {https://openreview.net/forum?id=63yoOFB24h}
 }
 ```
