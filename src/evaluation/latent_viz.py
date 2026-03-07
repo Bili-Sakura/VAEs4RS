@@ -46,6 +46,7 @@ def extract_latent_pixels(
     Args:
         vae: A ``VAEWrapper`` (or any object whose ``.encode()`` method
             returns scaled latent tensors of shape ``(B, C, H', W')``).
+            Must also expose ``.model.parameters()`` for dtype detection.
         dataloader: Yields ``(images, labels, paths)`` batches.
         sample_num: Number of per-pixel feature vectors to collect.
         device: Torch device for encoding.
