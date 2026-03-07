@@ -1,0 +1,61 @@
+# =============================================================================
+# Training Configuration for VGG16/InceptionV3 Classifiers on RS Datasets
+#
+# Train domain-specific feature extractors from scratch for FID(rs),
+# KID(rs), and LPIPS(rs) metrics.
+#
+# Usage:
+#   # Single GPU
+#   python scripts/train_classifier.py --config configs/train_classifier.yaml
+#
+#   # Multi-GPU with Accelerate
+#   accelerate launch scripts/train_classifier.py \
+#       --config configs/train_classifier.yaml
+#
+#   # Override dataset / architecture
+#   python scripts/train_classifier.py \
+#       --config configs/train_classifier.yaml \
+#       --arch inception_v3 --dataset AID --num_epochs 100
+# =============================================================================
+
+# Model settings
+model:
+  # "vgg16" or "inception_v3"
+  arch: vgg16
+  # Number of classes (auto-detected from dataset when null)
+  num_classes: null
+  # Whether to use ImageNet pretrained weights for initialisation
+  pretrained: false
+
+# Training hyperparameters
+training:
+  output_dir: outputs/classifiers
+  seed: 42
+  num_epochs: 100
+  batch_size: 32
+  gradient_accumulation_steps: 1
+  mixed_precision: bf16       # "no", "fp16", or "bf16"
+
+  learning_rate: 1.0e-3
+  optimizer: adamw
+  weight_decay: 1.0e-4
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  max_grad_norm: 1.0
+
+  lr_scheduler: cosine
+  warmup_ratio: 0.05
+
+  log_every_n_steps: 50
+  save_every_n_epochs: 10
+  eval_every_n_epochs: 1
+
+# Dataset settings
+data:
+  # Dataset name – must match a key in the project config.yaml
+  # (RESISC45, AID, or UCMerced)
+  dataset: RESISC45
+  image_size: 256
+  num_workers: 4
+  # Fraction of data used for validation (random stratified split)
+  val_ratio: 0.2

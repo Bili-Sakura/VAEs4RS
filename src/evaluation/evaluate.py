@@ -40,14 +40,44 @@ def evaluate_single(
         split_file=split_file,
     )
     
+    # Build RS-domain feature extractors if configured
+    rs_inception_extractor = None
+    rs_vgg_metric = None
+    if config.rs_inception_checkpoint and config.rs_inception_num_classes:
+        try:
+            from src.training.classifier_utils import RSInceptionFeatures
+            rs_inception_extractor = RSInceptionFeatures(
+                config.rs_inception_checkpoint,
+                config.rs_inception_num_classes,
+                device=config.device,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to load RS InceptionV3: %s", e)
+
+    if config.rs_vgg_checkpoint and config.rs_vgg_num_classes:
+        try:
+            from src.training.classifier_utils import RSLPIPSMetric
+            rs_vgg_metric = RSLPIPSMetric(
+                config.rs_vgg_checkpoint,
+                config.rs_vgg_num_classes,
+                device=config.device,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to load RS VGG: %s", e)
+    
     calculator = MetricCalculator(
         device=config.device,
         compute_fid=True,
+        compute_kid=config.compute_kid,
         compute_cmmd=config.compute_cmmd,
         fid_feature_extractor=config.fid_feature_extractor,
         cmmd_clip_model=config.cmmd_clip_model,
         cmmd_batch_size=min(config.batch_size, config.cmmd_batch_size),
         mmd_chunk_size=config.mmd_chunk_size,
+        rs_inception_extractor=rs_inception_extractor,
+        rs_vgg_metric=rs_vgg_metric,
     )
     
     # Create directories
@@ -228,11 +258,24 @@ def print_results_table(results: Dict):
         m and m.get('cmmd') is not None
         for d in results.values() for m in d.values()
     )
+    has_kid = any(
+        m and m.get('kid') is not None
+        for d in results.values() for m in d.values()
+    )
+    has_rs = any(
+        m and (m.get('fid_rs') is not None or m.get('kid_rs') is not None
+               or m.get('lpips_rs') is not None)
+        for d in results.values() for m in d.values()
+    )
     
     header = f"{'Model':<12} {'Dataset':<12} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8} {'FID':>8}"
+    if has_kid:
+        header += f" {'KID':>8}"
     if has_cmmd:
         header += f" {'CMMD':>8}"
-    print(header + "\n" + "-"*80)
+    if has_rs:
+        header += f" {'FID(rs)':>9} {'KID(rs)':>9} {'LPIPS(rs)':>10}"
+    print(header + "\n" + "-"*len(header))
     
     for model, datasets in results.items():
         for dataset, m in datasets.items():
@@ -240,9 +283,17 @@ def print_results_table(results: Dict):
                 continue
             fid = f"{m['fid']:>8.2f}" if m.get('fid') else "     N/A"
             line = f"{model:<12} {dataset:<12} {m['psnr']:>8.2f} {m['ssim']:>8.4f} {m['lpips']:>8.4f} {fid}"
+            if has_kid:
+                kid = f"{m['kid']:>8.4f}" if m.get('kid') is not None else "     N/A"
+                line += f" {kid}"
             if has_cmmd:
                 cmmd = f"{m['cmmd']:>8.2f}" if m.get('cmmd') else "     N/A"
                 line += f" {cmmd}"
+            if has_rs:
+                fid_rs = f"{m['fid_rs']:>9.2f}" if m.get('fid_rs') is not None else "      N/A"
+                kid_rs = f"{m['kid_rs']:>9.4f}" if m.get('kid_rs') is not None else "      N/A"
+                lpips_rs = f"{m['lpips_rs']:>10.4f}" if m.get('lpips_rs') is not None else "       N/A"
+                line += f" {fid_rs} {kid_rs} {lpips_rs}"
             print(line)
     
     print("="*80)

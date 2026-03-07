@@ -58,6 +58,11 @@ class EvalConfig:
     cmmd_batch_size: int = 32
     mmd_chunk_size: int = 1000
     fid_feature_extractor: Optional[Any] = None
+    compute_kid: bool = False
+    rs_inception_checkpoint: Optional[str] = None
+    rs_inception_num_classes: Optional[int] = None
+    rs_vgg_checkpoint: Optional[str] = None
+    rs_vgg_num_classes: Optional[int] = None
 
 
 @dataclass
@@ -102,6 +107,11 @@ def load_config(config_path: Path = CONFIG_PATH) -> Config:
         cmmd_clip_model=eval_raw.get("cmmd_clip_model", "models/BiliSakura/Remote-CLIP-ViT-L-14/transformers"),
         cmmd_batch_size=eval_raw.get("cmmd_batch_size", 32),
         mmd_chunk_size=eval_raw.get("mmd_chunk_size", 1000),
+        compute_kid=eval_raw.get("compute_kid", False),
+        rs_inception_checkpoint=eval_raw.get("rs_inception_checkpoint"),
+        rs_inception_num_classes=eval_raw.get("rs_inception_num_classes"),
+        rs_vgg_checkpoint=eval_raw.get("rs_vgg_checkpoint"),
+        rs_vgg_num_classes=eval_raw.get("rs_vgg_num_classes"),
     )
     
     # Parse experiment config

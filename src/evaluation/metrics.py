@@ -1,6 +1,6 @@
 """
 Reconstruction quality metrics for VAE evaluation.
-PSNR, SSIM, LPIPS, FID, and CMMD.
+PSNR, SSIM, LPIPS, FID, KID, CMMD, and RS-domain variants.
 """
 
 import torch
@@ -22,6 +22,14 @@ try:
 except (ImportError, RuntimeError):
     FID_AVAILABLE = False
     FrechetInceptionDistance = None
+
+# KID (optional, requires torch-fidelity)
+try:
+    from torchmetrics.image.kid import KernelInceptionDistance
+    KID_AVAILABLE = True
+except (ImportError, RuntimeError):
+    KID_AVAILABLE = False
+    KernelInceptionDistance = None
 
 # CMMD (optional, requires transformers)
 try:
@@ -177,35 +185,60 @@ class MetricResults:
     ssim: float
     lpips: float
     fid: Optional[float] = None
+    kid: Optional[float] = None
     cmmd: Optional[float] = None
+    fid_rs: Optional[float] = None
+    kid_rs: Optional[float] = None
+    lpips_rs: Optional[float] = None
     
     def __repr__(self):
         parts = [f"PSNR: {self.psnr:.2f} dB", f"SSIM: {self.ssim:.4f}", f"LPIPS: {self.lpips:.4f}"]
         if self.fid is not None:
             parts.append(f"FID: {self.fid:.2f}")
+        if self.kid is not None:
+            parts.append(f"KID: {self.kid:.4f}")
         if self.cmmd is not None:
             parts.append(f"CMMD: {self.cmmd:.2f}")
+        if self.fid_rs is not None:
+            parts.append(f"FID(rs): {self.fid_rs:.2f}")
+        if self.kid_rs is not None:
+            parts.append(f"KID(rs): {self.kid_rs:.4f}")
+        if self.lpips_rs is not None:
+            parts.append(f"LPIPS(rs): {self.lpips_rs:.4f}")
         return " | ".join(parts)
     
     def to_dict(self) -> dict:
-        return {"psnr": self.psnr, "ssim": self.ssim, "lpips": self.lpips, "fid": self.fid, "cmmd": self.cmmd}
+        return {
+            "psnr": self.psnr, "ssim": self.ssim, "lpips": self.lpips,
+            "fid": self.fid, "kid": self.kid, "cmmd": self.cmmd,
+            "fid_rs": self.fid_rs, "kid_rs": self.kid_rs, "lpips_rs": self.lpips_rs,
+        }
 
 
 class MetricCalculator:
-    """Calculator for image reconstruction metrics."""
+    """Calculator for image reconstruction metrics.
+
+    Supports standard metrics (PSNR, SSIM, LPIPS, FID, KID, CMMD) and
+    remote-sensing domain variants (FID(rs), KID(rs), LPIPS(rs)) that
+    use RS-trained InceptionV3 / VGG feature extractors.
+    """
     
     def __init__(
         self,
         device: str = "cuda",
         compute_fid: bool = True,
+        compute_kid: bool = False,
         compute_cmmd: bool = False,
         fid_feature_extractor: Optional[nn.Module] = None,
         cmmd_clip_model: str = "",
         cmmd_batch_size: int = 32,
         mmd_chunk_size: int = 1000,
+        rs_inception_extractor: Optional[nn.Module] = None,
+        rs_vgg_metric: Optional[nn.Module] = None,
     ):
         self.device = device
         self.compute_fid = compute_fid and FID_AVAILABLE
+        self.compute_kid = compute_kid and KID_AVAILABLE
         self.compute_cmmd = compute_cmmd and TRANSFORMERS_AVAILABLE
         
         # Core metrics
@@ -225,6 +258,15 @@ class MetricCalculator:
             except Exception:
                 self.compute_fid = False
         
+        # KID
+        self.kid = None
+        if self.compute_kid:
+            try:
+                kwargs = {"normalize": False, "subset_size": 50}
+                self.kid = KernelInceptionDistance(**kwargs).to(device)
+            except Exception:
+                self.compute_kid = False
+        
         # CMMD
         self.cmmd = None
         if self.compute_cmmd and cmmd_clip_model:
@@ -233,18 +275,56 @@ class MetricCalculator:
             except Exception:
                 self.compute_cmmd = False
         
+        # ---- RS-domain metrics -------------------------------------------
+        # FID(rs) / KID(rs) using RS-trained InceptionV3 features
+        self.fid_rs = None
+        self.kid_rs = None
+        self.compute_fid_rs = rs_inception_extractor is not None and FID_AVAILABLE
+        self.compute_kid_rs = rs_inception_extractor is not None and KID_AVAILABLE
+        if rs_inception_extractor is not None:
+            rs_inception_extractor = rs_inception_extractor.to(device).eval()
+            if FID_AVAILABLE:
+                try:
+                    self.fid_rs = FrechetInceptionDistance(
+                        feature=rs_inception_extractor, normalize=False,
+                    ).to(device)
+                except Exception:
+                    self.compute_fid_rs = False
+            if KID_AVAILABLE:
+                try:
+                    self.kid_rs = KernelInceptionDistance(
+                        feature=rs_inception_extractor, normalize=False,
+                        subset_size=50,
+                    ).to(device)
+                except Exception:
+                    self.compute_kid_rs = False
+        
+        # LPIPS(rs) using RS-trained VGG features
+        self.lpips_rs_metric = None
+        self.compute_lpips_rs = rs_vgg_metric is not None
+        if rs_vgg_metric is not None:
+            self.lpips_rs_metric = rs_vgg_metric.to(device).eval()
+        
         self.psnr_values: List[float] = []
         self.ssim_values: List[float] = []
         self.lpips_values: List[float] = []
+        self.lpips_rs_values: List[float] = []
     
     def reset(self):
         self.psnr_values, self.ssim_values, self.lpips_values = [], [], []
+        self.lpips_rs_values = []
         for m in [self.psnr, self.ssim, self.lpips]:
             m.reset()
         if self.fid:
             self.fid.reset()
+        if self.kid:
+            self.kid.reset()
         if self.cmmd:
             self.cmmd.reset()
+        if self.fid_rs:
+            self.fid_rs.reset()
+        if self.kid_rs:
+            self.kid_rs.reset()
     
     @torch.no_grad()
     def update(self, original: torch.Tensor, reconstructed: torch.Tensor):
@@ -260,22 +340,57 @@ class MetricCalculator:
         self.lpips_values.append(self.lpips(reconstructed, original).item())
         self.lpips.reset()
         
+        # Shared uint8 conversion for FID / KID / FID(rs) / KID(rs)
+        orig_uint8 = (((original + 1) / 2).clamp(0, 1) * 255).to(torch.uint8)
+        recon_uint8 = (((reconstructed + 1) / 2).clamp(0, 1) * 255).to(torch.uint8)
+        
         # FID (accumulates)
         if self.fid:
-            orig_uint8 = (((original + 1) / 2).clamp(0, 1) * 255).to(torch.uint8)
-            recon_uint8 = (((reconstructed + 1) / 2).clamp(0, 1) * 255).to(torch.uint8)
             self.fid.update(orig_uint8, real=True)
             self.fid.update(recon_uint8, real=False)
+        
+        # KID (accumulates)
+        if self.kid:
+            self.kid.update(orig_uint8, real=True)
+            self.kid.update(recon_uint8, real=False)
         
         # CMMD (accumulates)
         if self.cmmd:
             self.cmmd.update(original, reconstructed)
+        
+        # ---- RS-domain metrics -------------------------------------------
+        if self.fid_rs:
+            self.fid_rs.update(orig_uint8, real=True)
+            self.fid_rs.update(recon_uint8, real=False)
+        
+        if self.kid_rs:
+            self.kid_rs.update(orig_uint8, real=True)
+            self.kid_rs.update(recon_uint8, real=False)
+        
+        if self.lpips_rs_metric is not None:
+            self.lpips_rs_values.append(
+                self.lpips_rs_metric(original, reconstructed).item()
+            )
     
     def compute(self) -> MetricResults:
+        kid_val = None
+        if self.kid:
+            kid_mean, _ = self.kid.compute()
+            kid_val = kid_mean.item()
+        
+        kid_rs_val = None
+        if self.kid_rs:
+            kid_rs_mean, _ = self.kid_rs.compute()
+            kid_rs_val = kid_rs_mean.item()
+        
         return MetricResults(
             psnr=np.mean(self.psnr_values),
             ssim=np.mean(self.ssim_values),
             lpips=np.mean(self.lpips_values),
             fid=self.fid.compute().item() if self.fid else None,
+            kid=kid_val,
             cmmd=self.cmmd.compute() if self.cmmd else None,
+            fid_rs=self.fid_rs.compute().item() if self.fid_rs else None,
+            kid_rs=kid_rs_val,
+            lpips_rs=np.mean(self.lpips_rs_values) if self.lpips_rs_values else None,
         )
