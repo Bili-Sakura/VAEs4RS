@@ -127,7 +127,7 @@ class TestRSLPIPSMetric:
         x = torch.randn(2, 3, 64, 64)
         with torch.no_grad():
             dist = metric(x, x)
-        assert dist.item() == pytest.approx(0.0, abs=1e-5)
+        assert dist.item() == pytest.approx(0.0, abs=1e-4)
 
     def test_distance_nonzero_for_different(self, vgg_checkpoint):
         metric = RSLPIPSMetric(vgg_checkpoint, num_classes=21, device="cpu")

@@ -234,25 +234,25 @@ def main():
 
     train_subset, val_subset = _train_val_split(full_dataset, val_ratio, seed)
 
-    # Replace transform for validation subset (underlying dataset still uses train_transform)
-    # We handle this by wrapping
-    class _ValWrapper:
-        """Thin wrapper that replaces the transform on the fly."""
-        def __init__(self, subset, transform):
-            self.subset = subset
-            self.transform = transform
-        def __len__(self):
-            return len(self.subset)
-        def __getitem__(self, idx):
-            img, label, path = self.subset[idx]
-            # img was already transformed by train_transform; we need to re-load
-            # The cleanest approach: load raw image
-            inner = self.subset.dataset
-            real_idx = self.subset.indices[idx]
-            raw_img = inner._load_image(inner.image_paths[real_idx])
-            return self.transform(raw_img), label, path
+    # Replace transform for validation subset.
+    # We create a second dataset with val_transform sharing the same file list.
+    val_dataset = RSDataset(
+        root=_resolve_dataset_root(dataset_name),
+        image_size=None,
+        transform=val_transform,
+    )
 
-    val_wrapped = _ValWrapper(val_subset, val_transform)
+    class _SubsetByIndices:
+        """Thin wrapper that indexes into a full dataset via a list of indices."""
+        def __init__(self, dataset, indices):
+            self.dataset = dataset
+            self.indices = indices
+        def __len__(self):
+            return len(self.indices)
+        def __getitem__(self, idx):
+            return self.dataset[self.indices[idx]]
+
+    val_wrapped = _SubsetByIndices(val_dataset, val_subset.indices)
 
     train_loader = DataLoader(
         train_subset, batch_size=batch_size, shuffle=True,
@@ -318,6 +318,21 @@ def main():
     logger.info("  Dataset = %s (%d classes)", dataset_name, num_classes)
     logger.info("  Epochs = %d, Batch = %d, Steps = %d", num_epochs, batch_size, max_steps)
 
+    def _extract_logits_and_loss(outputs, labels):
+        """Return (logits, loss) handling InceptionV3's auxiliary outputs."""
+        if isinstance(outputs, tuple):
+            logits, aux_logits = outputs
+            loss = criterion(logits, labels) + 0.4 * criterion(aux_logits, labels)
+        elif hasattr(outputs, "logits"):
+            logits = outputs.logits
+            loss = criterion(logits, labels)
+            if hasattr(outputs, "aux_logits") and outputs.aux_logits is not None:
+                loss = loss + 0.4 * criterion(outputs.aux_logits, labels)
+        else:
+            logits = outputs
+            loss = criterion(logits, labels)
+        return logits, loss
+
     global_step = 0
     best_acc = 0.0
 
@@ -333,18 +348,7 @@ def main():
         for images, labels in pbar:
             with accelerator.accumulate(model):
                 outputs = model(images)
-                # InceptionV3 returns InceptionOutputs with .logits and .aux_logits
-                if isinstance(outputs, tuple):
-                    logits, aux_logits = outputs
-                    loss = criterion(logits, labels) + 0.4 * criterion(aux_logits, labels)
-                elif hasattr(outputs, "logits"):
-                    logits = outputs.logits
-                    loss = criterion(logits, labels)
-                    if hasattr(outputs, "aux_logits") and outputs.aux_logits is not None:
-                        loss = loss + 0.4 * criterion(outputs.aux_logits, labels)
-                else:
-                    logits = outputs
-                    loss = criterion(logits, labels)
+                logits, loss = _extract_logits_and_loss(outputs, labels)
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
@@ -378,18 +382,18 @@ def main():
             val_correct = 0
             val_total = 0
             val_loss = 0.0
+            val_steps = 0
             with torch.no_grad():
                 for images, labels in val_loader:
                     outputs = model(images)
-                    logits = outputs.logits if hasattr(outputs, "logits") else outputs
-                    if isinstance(outputs, tuple):
-                        logits = outputs[0]
-                    val_loss += criterion(logits, labels).item()
+                    logits, batch_loss = _extract_logits_and_loss(outputs, labels)
+                    val_loss += batch_loss.item()
                     val_correct += (logits.argmax(dim=1) == labels).sum().item()
                     val_total += labels.size(0)
+                    val_steps += 1
 
             val_acc = val_correct / max(val_total, 1)
-            avg_val_loss = val_loss / max(val_total / batch_size, 1)
+            avg_val_loss = val_loss / max(val_steps, 1)
             logger.info("Epoch %d – val_loss: %.4f  val_acc: %.4f",
                         epoch + 1, avg_val_loss, val_acc)
 

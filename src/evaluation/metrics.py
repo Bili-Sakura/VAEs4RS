@@ -340,7 +340,7 @@ class MetricCalculator:
         self.lpips_values.append(self.lpips(reconstructed, original).item())
         self.lpips.reset()
         
-        # Uint8 conversion for FID / KID
+        # Shared uint8 conversion for FID / KID / FID(rs) / KID(rs)
         orig_uint8 = (((original + 1) / 2).clamp(0, 1) * 255).to(torch.uint8)
         recon_uint8 = (((reconstructed + 1) / 2).clamp(0, 1) * 255).to(torch.uint8)
         
